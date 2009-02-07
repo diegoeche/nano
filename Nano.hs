@@ -10,7 +10,6 @@ The idea of using an infix and postfix operator for emulating distfix operators 
 would be 3 ) + 2
 
 We will just offer an operator of the form [_] 
-
 -}
 module Nano (parse, split) where
  
@@ -140,15 +139,42 @@ createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
 
 plusS     = createOpTuple 1 "+" LeftA Infix
 timesS    = createOpTuple 2 "*" RightA Infix
-lParenS   = createOpTuple 5 "(" LeftA Prefix
-rParenS   = createOpTuple 5 ")" RightA Suffix
-
+lParenS   = createOpTuple 5 "(" LeftA Open
+rParenS   = createOpTuple 5 ")" RightA (Close "(")
 
 environment = M.fromList [plusS,timesS,lParenS,rParenS]
 
-
+-- Generates SPartial constructors from the distfix operators in the
+-- expression
+-- Maybe wrap this inside of a Monad to avoid loosing the fail messages?
+resolveDistfix :: [SElement] -> [SElement]
+resolveDistfix xs = 
+    resolveDistfix' Nothing [] [] xs
+    where resolveDistfix' Nothing before after [] = before
+          resolveDistfix' Nothing before after ((SFunction opInfo):xs) 
+              | fix opInfo == Open = resolveDistfix'(Just opInfo) before [] xs
+              | isClose $ fix opInfo = fail $ "Found close operator " 
+                                       ++ name opInfo ++ "with no open operator"
+                where isClose (Close _) = True
+                      isClose _  = False
+          resolveDistfix' Nothing before _ (x:xs) = resolveDistfix' Nothing (before ++ [x]) [] xs
+          resolveDistfix' current@(Just opInfo) before after x = 
+              case x of 
+                [] -> fail $ "Expression terminated while expecting closing operator of " 
+                      ++ name opInfo 
+                (x@(SFunction opInfo2)):xs ->
+                    case fix opInfo2 of
+                      Open -> resolveDistfix' (Just opInfo2) (before ++ [x] ++ after) [] xs  
+                      Close open | open == name opInfo -> do
+                                       inside <- buildIntExprTree after
+                                       resolveDistfix $ before ++ [SPartial $ Unary open inside] ++ xs
+                      Close x -> fail $ "Closing operator found while expecting closing operator of" 
+                                 ++ name opInfo 
+                      _ -> resolveDistfix' current before (after ++ [x]) xs
+                x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
 -- Builds a tree of integer values 
+buildIntExprTree :: (Monad m) => [SElement] -> m IntegerExprTree
 buildIntExprTree [] = fail "Cannot build expression tree"
 buildIntExprTree [SInteger n] = return $ Value n
 buildIntExprTree [SPartial t] = return t
@@ -188,8 +214,12 @@ eval (Unary ")" x) = eval x
 test s = 
     liftM eval (parseWrap s
                 >>= sAnalyse environment 
-                >>= buildIntExprTree) 
+                >>= (buildIntExprTree . resolveDistfix)) 
 
-test1 s = 
-    parseWrap s >>= sAnalyse environment
-
+{-
+Tests:
+test "3 + ( ( ( ( 1 + 2 ) + 4 + 3 * 2 + 4 + ( 7 + 2 ) ) + 3 + 17 * 6 + 27 ) + 3 )"
+164
+test "( 1 + 3 ) + ( 3 * 2 ) + ( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
+92
+-}
