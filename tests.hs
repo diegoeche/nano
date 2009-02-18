@@ -1,6 +1,6 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 import Test.QuickCheck
-import Nano
+import Analyser
 
 deepCheck = check (defaultConfig { configMaxTest = 1000})
 

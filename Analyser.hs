@@ -15,7 +15,10 @@ We will just offer an operator of the form [_]
 module Analyser (split)  where
 import Control.Applicative ((<$>))
 import Control.Monad.Error hiding (fix) 
-import Data.Map as M hiding (split) 
+import qualified Data.Map as M hiding (split) 
+import qualified Data.Set as Set
+import Data.List  
+
 import Parser
 
 --------------------------------------------------
@@ -76,16 +79,29 @@ sAnalyse env tokens = mapM t tokens
     where t (LiteralToken (NInteger int)) = return $ SInteger int 
           t (FunctionToken x) =  SFunction <$> (maybeToM $ M.lookup x env)
 
-          -- split [] = []
-          -- split (y:[]) = [[[y]]]
-          -- split (y:ys) =  concatMap (merge y) (split ys)
-          --     where merge z [] = [[[z]]]
-          --           merge z (x:xs) =
-          --               let s1 = (z : x) : xs
-          --                        s2 = [z] : x : xs         
-          --               in [s1, s2]
-                                               
+isValidToken i identifiers =
+    case parseTokenWrap i of 
+      Just (FunctionToken name) | Set.member name identifiers  -> True
+      Just (LiteralToken _) -> True
+      _ -> False
 
+-- Returns the possible operators given the environment and the string
+possibleOperators operator env =  filter (isValid . head) $ split operator
+    -- For solving: "+++" 
+    -- We get: [["+++"],["++","+"],["+","+","+"]]
+    where isValid = flip isValidToken $ keys
+          keys = Set.fromList . M.keys $ env 
+          split [] = [] -- Thanks Joel!
+          split (y:[]) = [[[y]]]
+          split (y:ys) =  concatMap (merge y) (split ys)
+              where merge z [] = [[[z]]]
+                    merge z (x:xs) =
+                        let s1 = (z : x) : xs
+                            s2 = [z] : x : xs         
+                        in if isValidToken x keys 
+                           then [s1, s2]  
+                           else [s1] 
+ 
 -- This function will be used for building the Expression Tree
 split :: (Ord a, Monad m) => [a] -> m ([a], a, [a])
 split ([]) = fail "Cannot split empty list"
@@ -137,12 +153,13 @@ resolveDistfix xs =
 createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
                                     assoc = a, fix = f})
 
-plusS     = createOpTuple 1 "+" LeftA Infix
-timesS    = createOpTuple 2 "*" RightA Infix
-lParenS   = createOpTuple 5 "(" LeftA Open
-rParenS   = createOpTuple 5 ")" RightA (Close "(")
+plusS     = createOpTuple 1 "+"  LeftA Infix
+timesS    = createOpTuple 2 "*"  RightA Infix
+incr      = createOpTuple 2 "++" RightA Prefix
+lParenS   = createOpTuple 5 "("  LeftA Open
+rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
-environment = M.fromList [plusS,timesS,lParenS,rParenS]
+environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
 
 -- Builds a tree of integer values 
 buildIntExprTree :: (Monad m) => [SElement] -> m IntegerExprTree
@@ -179,10 +196,6 @@ eval (Value n) = n
 eval (Binary "+" x y) = eval x + eval y
 eval (Binary "*" x y) = eval x * eval y
 eval (Unary "(" x) = eval x
-
-
-
-
 
 --test :: Either [Char] SElement
 test s = 
