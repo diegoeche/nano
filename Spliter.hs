@@ -3,6 +3,7 @@ import Data.List
 import Control.Arrow
 import Test.QuickCheck
 
+-- This algorithm was modified so 
 split [] = []
 split (y:[]) = [[[y]]]
 split (y:ys) =  concatMap (merge y) (split ys)

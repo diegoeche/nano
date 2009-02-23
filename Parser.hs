@@ -45,7 +45,8 @@ pLiteral =
         NString <$> pString 
     <|> NInteger <$> pNatural
 
-parseToken = (LiteralToken <$> pLiteral <|> FunctionToken <$> pIdentifier)
+parseToken = LiteralToken <$> pLiteral 
+             <|> FunctionToken <$> pIdentifier
 
 -- Parse expression using the given environment.
 -- pExprElems :: ParsecT String () Control.Monad.Identity.Identity [ExprToken]
@@ -54,13 +55,13 @@ pExprElems = many parseToken
 wrap (Left _) = fail "Parse Error!"    
 wrap (Right x) = return x
 
-parseTokenWrap s = wrap $ parse p "" s
-                   where p = do 
-                           result <- parseToken
-                           eof
-                           return result
+parseTokenWrap = wrap . parse p "" 
+    where p = do 
+            result <- parseToken
+            eof
+            return result
 
 -- To get standard monad handling of errors.
 parseWrap :: (Monad m) => String -> m [ExprToken]
-parseWrap s = wrap $ parse pExprElems "" s
+parseWrap = wrap . parse pExprElems ""
 
