@@ -26,4 +26,4 @@ prop2 :: [Int] -> Property
 prop2 x = 
     x == nub x
           ==> let p = split x 
-              in (length p) == (length $ nub p)
+              in length p == length $ nub p

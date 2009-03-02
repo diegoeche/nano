@@ -2,6 +2,9 @@
 -- Bug reports to Diego Echeverri at diegoeche@gmail.com
 {- Notes:
 
+This module is the one that builds up the expression tree from a 
+list of tokens
+
 February 5:
 The idea of using an infix and postfix operator for emulating distfix operators like:
 [_] has some troubles. This the "hard" example "2 * ( 3 ) + 2 " the argument of `(` 
@@ -12,7 +15,15 @@ We will just offer an operator of the form [_]
 
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Analyser (split)  where
+module Analyser (split, buildExpression, pPrinter, fix, precedence, name,
+                 assoc,
+                 Assoc(LeftA, RightA),
+                 Fixing(Suffix, Prefix, Infix, Open, Close),
+                 OpInfo(OpInfo),
+                 SElement(SFunction, SInteger, SPartial),
+                 ExprTree(Value, Call),
+                 Atom(IPrim, SPrim)) where
+
 import Control.Applicative ((<$>))
 import Control.Monad.Error hiding (fix) 
 import qualified Data.Map as M hiding (split) 
@@ -141,15 +152,14 @@ split (x:xs) = return $ splitAccum [] x [] xs
           else splitAccum b v (a ++ [x]) xs
 
 -- The structure behind the types and values?
-data Function = IPrim Integer 
-              | SPrim String 
-              | Func Function Function 
-                deriving (Show,Eq)
+data Atom = IPrim Integer 
+          | SPrim String 
+          | Variable String
+            deriving (Show,Eq)
 
 -- The structure for evaluating expressions.
-data ExprTree = Value Function
-              | Binary String ExprTree ExprTree 
-              | App String ExprTree
+data ExprTree = Value Atom
+              | Call String [ExprTree]
                 deriving (Show,Eq)
 
 -- Generates SPartial constructors from the distfix operators in the
@@ -177,14 +187,13 @@ resolveDistfix xs =
                       Open _ -> resolveDistfix' (Just opInfo2) (before ++ [x] ++ after) [] xs  
                       Close open | open == name opInfo -> do
                                        inside <- buildExprTree after
-                                       resolveDistfix $ before ++ [SPartial $ App open inside] ++ xs
+                                       resolveDistfix $ before ++ [SPartial $ Call open [inside]] ++ xs
                       Close x -> fail $ "Closing operator found while expecting closing operator of" 
                                  ++ name opInfo 
                       _ -> resolveDistfix' current before (after ++ [x]) xs
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
 -- Builds a tree of integer values 
-
 buildExprTree [] = fail "Cannot build expression tree"
 buildExprTree [SInteger n] = return $ Value $ IPrim n
 buildExprTree [SPartial t] = return t
@@ -199,90 +208,40 @@ buildExprTree xs = do
       (Infix, _, _) -> do
                         par1 <- buildExprTree before
                         par2 <- buildExprTree after
-                        return $ Binary opName par1 par2
+                        return $ Call opName [par1, par2]
       (Prefix, [], _) -> do
                         right <- buildExprTree after
-                        return $ App opName right 
+                        return $ Call opName [right] 
       (Prefix, _, _) -> do
                         right <- buildExprTree after
-                        buildExprTree $ before ++ [(SPartial $ App opName right)]
+                        buildExprTree $ before ++ [(SPartial $ Call opName [right])]
       (Suffix, _, []) -> do
                         left <- buildExprTree before
-                        return $ App opName left
+                        return $ Call opName [left]
       (Suffix, _, _)-> do
                         left <- buildExprTree before
-                        buildExprTree $ (SPartial $ App opName left) : after
+                        buildExprTree $ (SPartial $ Call opName [left]) : after
 
-
---data Value = 
-
---------------------------------------------------
--- Test environment
---------------------------------------------------
-createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
-                                    assoc = a, fix = f})
-
-plusS     = createOpTuple 1 "+"  LeftA Infix
-timesS    = createOpTuple 2 "*"  RightA Infix
-incr      = createOpTuple 2 "++" RightA Prefix
-lParenS   = createOpTuple 5 "("  LeftA  (Open  ")") 
-rParenS   = createOpTuple 5 ")"  RightA (Close "(")
-
-environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
-      
--- Temporary function for eval 
-eval (Value (IPrim n)) = n
-eval (Binary "+" x y) = eval x + eval y
-eval (Binary "*" x y) = eval x * eval y
-eval (App "(" x) = eval x
-eval (App "++" x) =  1 + eval x 
 
 
 pPrinter _   (Value (IPrim n))  = return . show $ n
 pPrinter _   (Value (SPrim s))  = return . show $ s
-pPrinter env (Binary op x y)    =  
-    do
-      v1 <- pPrinter env x
-      v2 <- pPrinter env y
-      return $ intercalate " " [v1, op, v2]
-pPrinter env (App op x) =      
+pPrinter env (Call op params) =      
     do 
       opInfo <- maybeToList . M.lookup op $ env
-      value <- pPrinter env x
-      format (fix opInfo) value
-      where format Prefix = \x -> return $ op ++ " " ++ x
-            format Suffix = \x -> return $ x ++ " "  ++ op
-            format (Open close) = \x -> return $ intercalate " " [op, x, close]
-            format (Close open) = format $ Open op
+      values <- mapM (pPrinter env) params
+      format (fix opInfo) values
+      where format Prefix x = return $ op ++ " " ++ lformat x
+            format Suffix x = return $ lformat x ++ " "  ++ op
+            format (Open close) x = return $ intercalate " " [op, (lformat x), close]
+            format (Close open) x = format (Open op) x
+            format Infix (x1:x2:_) = return $ x1  ++ op ++ x2
+            lformat = intercalate ","
+                                             
+buildExpression :: String -> M.Map String OpInfo -> [ExprTree]
+buildExpression s env = 
+     parseWrap s
+     >>= sAnalyse env 
+     >>= (buildExprTree . resolveDistfix)
 
 
-
-
---test :: Either [Char] SElement
-evalExpr s = 
-    liftM eval (parseWrap s
-                >>= sAnalyse environment 
-                >>= (buildExprTree . resolveDistfix)) 
-
-pp s = parseWrap s
-       >>= sAnalyse environment 
-       >>= (buildExprTree . resolveDistfix)
-       >>= pPrinter environment 
-
-
-test2 s = 
-    parseWrap s
-    >>= sAnalyse environment 
-
-
-
-{-
-Tests:
-test "3 + ( ( ( ( 1 + 2 ) + 4 + 3 * 2 + 4 + ( 7 + 2 ) ) + 3 + 17 * 6 + 27 ) + 3 )"
-164
-test "( 1 + 3 ) + ( 3 * 2 ) + ( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
-92
-test "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
-92
-
--}
