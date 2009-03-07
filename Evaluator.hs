@@ -3,6 +3,7 @@ import Control.Monad
 import qualified Data.Map as M 
 import Data.List
 import LambdaCalculus
+import Parser
 --------------------------------------------------
 -- Test environment
 --------------------------------------------------
@@ -23,12 +24,6 @@ buildLambdaExpr (Call "+" [x, y]) = add (buildLambdaExpr x) (buildLambdaExpr y)
 buildLambdaExpr (Call "*" [x, y]) = times (buildLambdaExpr x) (buildLambdaExpr y)
 buildLambdaExpr (Call "(" [x])    = App identity (buildLambdaExpr x) 
 buildLambdaExpr (Call "++" [x])   = add (buildLambdaExpr x) (c 1)
-
-eval (Value (IPrim n)) = n
-eval (Call "+" [x, y]) = eval x + eval y
-eval (Call "*" [x, y]) = eval x * eval y
-eval (Call "(" [x]) = eval x
-eval (Call "++" [x]) =  1 + eval x 
 
 --test :: Either [Char] SElement
 buildLambdaWrap s = 

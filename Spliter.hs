@@ -3,7 +3,7 @@ import Data.List
 import Control.Arrow
 import Test.QuickCheck
 
--- This algorithm was modified so 
+-- This algorithm was modified so This propperties no longer apply
 split [] = []
 split (y:[]) = [[[y]]]
 split (y:ys) =  concatMap (merge y) (split ys)
@@ -26,4 +26,9 @@ prop2 :: [Int] -> Property
 prop2 x = 
     x == nub x
           ==> let p = split x 
-              in length p == length $ nub p
+              in length p == (length $ nub p)
+
+
+example x = id x
+
+example x = (id . id) x

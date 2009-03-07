@@ -8,9 +8,14 @@ identifiers.
 
 module Parser (parseWrap, 
                parseTokenWrap,
+               Assoc(LeftA, RightA),
+               fix, precedence, name,
+               assoc, OpInfo(OpInfo),
+               Fixing(Suffix, Prefix, Infix, Open, Close),
                Literal(NString, NInteger),
                ExprToken(LiteralToken, FunctionToken)  
               ) where
+
 import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.ParserCombinators.Parsec.Language 
 import Text.Parsec
@@ -19,17 +24,36 @@ import Control.Applicative ((<$>))
 -- Literal Definition. In the moment just strings 
 -- and integers 
 data Literal = NString String | NInteger Integer 
-               deriving Show
+               deriving (Show, Eq)
 
 -- Expression Definition
 data ExprToken = LiteralToken Literal | FunctionToken String
-                 deriving Show
+                 deriving (Show, Eq)
+
+-- Information about operator
+data OpInfo = OpInfo {
+      name :: String,
+      precedence :: Int,
+      assoc :: Assoc,
+      fix :: Fixing
+    } deriving (Show,Eq)
+
+-- Function Declaration 
+data Declaration = Decl {opInfo :: OpInfo,
+                         bindedVars :: [String],
+                         definition :: [ExprToken]
+                        } deriving (Show,Eq)
+-- Creates an OpInfo
+createOp p n a f = OpInfo {precedence = p, name = n,
+                           assoc = a, fix = f}
 
 -- The key for our programming language. 
 -- Permissive identifiers
 lexer :: P.TokenParser ()
 lexer  = P.makeTokenParser
          (emptyDef {
+            reservedNames = ["infixr", "infixl", "closed", "suffix", 
+                             "let", "=", "main", "rec"],
             identStart = oneOf $ filter (`notElem` digits) allChars,
             identLetter = oneOf allChars
           })
@@ -41,6 +65,17 @@ pString =  P.stringLiteral lexer
 pNatural =  P.natural lexer
 pIdentifier = P.identifier lexer
 
+-- Reserved words parsers.
+[pClosedW, pSuffixW, pLetW] = map (P.reserved lexer) 
+                              ["closed", "suffix", "let"]
+
+pEquals = P.reserved lexer "=" 
+
+pInfix = 
+        const RightA <$> reserved "infixr"
+    <|> const LeftA <$> reserved "infixl"
+    where reserved = P.reserved lexer
+    
 pLiteral = 
         NString <$> pString 
     <|> NInteger <$> pNatural
@@ -48,9 +83,65 @@ pLiteral =
 parseToken = LiteralToken <$> pLiteral 
              <|> FunctionToken <$> pIdentifier
 
--- Parse expression using the given environment.
--- pExprElems :: ParsecT String () Control.Monad.Identity.Identity [ExprToken]
+--------------------------------------------------
+-- Concrete Syntax for declarations
+--------------------------------------------------
 pExprElems = many parseToken
+pDefinition = pEquals >> pExprElems
+
+pSuffixDef = do
+  pLetW
+  pSuffixW
+  ids <- many pIdentifier
+  let name:params = reverse ids
+  def <- pDefinition
+  return Decl {opInfo = createOp 3 name LeftA Suffix,
+               bindedVars = reverse params,
+               definition = def} 
+
+pPrefixDef = do
+  pLetW
+  name:params <- many pIdentifier
+  def <- pDefinition
+  return Decl {opInfo = createOp 3 name LeftA Prefix,
+               bindedVars = params,
+               definition = def} 
+
+-- For the moment we only accept infix operators with two args.
+-- Maybe later we should explore if this restriction is necessary.
+pInfixDef = do
+  pLetW
+  assoc <- pInfix
+  [p1,op,p2] <- many pIdentifier
+  def <- pDefinition
+  return Decl {opInfo = createOp 3 op assoc Infix,
+               bindedVars = [p1,p2],
+               definition = def} 
+
+pClosedDef = do
+  pLetW
+  pClosedW
+  open:rest <- many pIdentifier
+  let close: args = reverse rest
+  def <- pDefinition
+  return Decl {opInfo = createOp 3 open LeftA $ Open close,
+               bindedVars = reverse args,
+               definition = def} 
+
+pDefinitions = many     (pInfixDef <|> pPrefixDef 
+                     <|> pInfixDef <|> pClosedDef)
+
+
+-- Operator Definition
+data Assoc = LeftA | RightA -- Lets take out this one for now | NeutralA
+             deriving (Show,Eq)
+
+--            f  a      f  a     a f b   
+data Fixing = Suffix | Prefix | Infix  
+            -- This ones will allow us to have closed operators.
+            | Open String  -- I know this is redundant but is "handy"
+            | Close String  
+              deriving (Show,Eq)
 
 wrap (Left _) = fail "Parse Error!"    
 wrap (Right x) = return x

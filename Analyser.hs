@@ -15,11 +15,7 @@ We will just offer an operator of the form [_]
 
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Analyser (split, buildExpression, pPrinter, fix, precedence, name,
-                 assoc,
-                 Assoc(LeftA, RightA),
-                 Fixing(Suffix, Prefix, Infix, Open, Close),
-                 OpInfo(OpInfo),
+module Analyser (split, buildExpression, pPrinter, 
                  SElement(SFunction, SInteger, SPartial),
                  ExprTree(Value, Call),
                  Atom(IPrim, SPrim)) where
@@ -36,17 +32,6 @@ import Parser
 --------------------------------------------------
 -- Language Elements
 --------------------------------------------------
--- Operator Definition
-data Assoc = LeftA | RightA -- Lets take out this one for now | NeutralA
-             deriving (Show,Eq)
-
---            f  a      f  a     a f b   
-data Fixing = Suffix | Prefix | Infix  
-            -- This ones will allow us to have closed operators.
-            | Open String  -- I know this is redundant but is "handy"
-            | Close String  
-              deriving (Show,Eq)
-
 
 -- Semantic Elements. Used for resolving fixity. 
 data SElement = SInteger Integer 
@@ -54,13 +39,6 @@ data SElement = SInteger Integer
               | SPartial ExprTree -- Partially builded trees.
                deriving (Show,Eq)
 
--- Information about operator
-data OpInfo = OpInfo {
-      name :: String,
-      precedence :: Int,
-      assoc :: Assoc,
-      fix :: Fixing
-    }deriving (Show,Eq)
 
 
 -- We need this to make the split work.
@@ -222,8 +200,6 @@ buildExprTree xs = do
                         left <- buildExprTree before
                         buildExprTree $ (SPartial $ Call opName [left]) : after
 
-
-
 pPrinter _   (Value (IPrim n))  = return . show $ n
 pPrinter _   (Value (SPrim s))  = return . show $ s
 pPrinter env (Call op params) =      
@@ -243,5 +219,3 @@ buildExpression s env =
      parseWrap s
      >>= sAnalyse env 
      >>= (buildExprTree . resolveDistfix)
-
-
