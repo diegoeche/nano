@@ -1,5 +1,5 @@
 module LambdaCalculus (whnf, add, times, ifthenelse, yComb, c, identity,
-                       Expr(Const, Var, App),
+                       Expr(Const, Var, Lam, App),
                        Constant(Data, Prim)) where
 
 import Data.List
@@ -55,7 +55,6 @@ getOperation "==" x y =
 
 liftData f (Data x1) (Data x2) = f x1 x2
 liftInt x y = Data . liftData x y 
-                                                               
 
 -- Weak head normal form.
 whnf :: Expr -> Expr

@@ -8,9 +8,13 @@ identifiers.
 
 module Parser (parseWrap, 
                parseTokenWrap,
+               parseProgramWrap,
                Assoc(LeftA, RightA),
                fix, precedence, name,
                assoc, OpInfo(OpInfo),
+               Declaration(Decl),opInfo,
+               bindedVars,
+               definition,
                Fixing(Suffix, Prefix, Infix, Open, Close),
                Literal(NString, NInteger),
                ExprToken(LiteralToken, FunctionToken)  
@@ -20,6 +24,7 @@ import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.ParserCombinators.Parsec.Language 
 import Text.Parsec
 import Control.Applicative ((<$>))
+import Control.Monad
 
 -- Literal Definition. In the moment just strings 
 -- and integers 
@@ -66,10 +71,9 @@ pNatural =  P.natural lexer
 pIdentifier = P.identifier lexer
 
 -- Reserved words parsers.
-[pClosedW, pSuffixW, pLetW] = map (P.reserved lexer) 
-                              ["closed", "suffix", "let"]
-
-pEquals = P.reserved lexer "=" 
+[pClosedW, pSuffixW, pLetW, pEqualsW, pMainW] = 
+    map (P.reserved lexer) 
+            ["closed", "suffix", "let", "=", "main"]
 
 pInfix = 
         const RightA <$> reserved "infixr"
@@ -87,13 +91,12 @@ parseToken = LiteralToken <$> pLiteral
 -- Concrete Syntax for declarations
 --------------------------------------------------
 pExprElems = many parseToken
-pDefinition = pEquals >> pExprElems
-
+pDefinition = pEqualsW >> pExprElems
+    
 pSuffixDef = do
   pLetW
   pSuffixW
-  ids <- many pIdentifier
-  let name:params = reverse ids
+  name:params <- liftM reverse $ many pIdentifier
   def <- pDefinition
   return Decl {opInfo = createOp 3 name LeftA Suffix,
                bindedVars = reverse params,
@@ -128,8 +131,22 @@ pClosedDef = do
                bindedVars = reverse args,
                definition = def} 
 
-pDefinitions = many     (pInfixDef <|> pPrefixDef 
-                     <|> pInfixDef <|> pClosedDef)
+pDeclarations = many $ foldl1 (<|>) declarations
+               where declarations = 
+                         -- The try is necessary since the parsers seem to consume some input.
+                         map try [pPrefixDef, pSuffixDef, 
+                                  pInfixDef, pInfixDef, 
+                                  pClosedDef]
+
+-- Program Syntactic representation.
+pProgram = 
+    do
+      defs <- pDeclarations
+      pMainW 
+      pEqualsW
+      main <- pExprElems
+      eof
+      return (defs, main) 
 
 
 -- Operator Definition
@@ -143,7 +160,7 @@ data Fixing = Suffix | Prefix | Infix
             | Close String  
               deriving (Show,Eq)
 
-wrap (Left _) = fail "Parse Error!"    
+wrap (Left err) = fail $ "Parse Error!\n" ++ show err
 wrap (Right x) = return x
 
 parseTokenWrap = wrap . parse p "" 
@@ -155,4 +172,6 @@ parseTokenWrap = wrap . parse p ""
 -- To get standard monad handling of errors.
 parseWrap :: (Monad m) => String -> m [ExprToken]
 parseWrap = wrap . parse pExprElems ""
+
+parseProgramWrap = wrap . parse (pProgram) ""
 

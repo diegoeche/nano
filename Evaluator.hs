@@ -4,6 +4,8 @@ import qualified Data.Map as M
 import Data.List
 import LambdaCalculus
 import Parser
+import qualified Data.Set as S
+import Data.Maybe
 --------------------------------------------------
 -- Test environment
 --------------------------------------------------
@@ -18,20 +20,56 @@ rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
 environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
 
--- Temporary function for eval 
-buildLambdaExpr (Value (IPrim n)) = Const $ Data n
-buildLambdaExpr (Call "+" [x, y]) = add (buildLambdaExpr x) (buildLambdaExpr y)
-buildLambdaExpr (Call "*" [x, y]) = times (buildLambdaExpr x) (buildLambdaExpr y)
-buildLambdaExpr (Call "(" [x])    = App identity (buildLambdaExpr x) 
-buildLambdaExpr (Call "++" [x])   = add (buildLambdaExpr x) (c 1)
+program =  
+    "let closed x + y = add x y\n" 
+    ++ "let infixl x * y = times x y\n" 
+    ++ "let suffix x ! = factorial x\n" 
+    ++ "let closed ( x ) = id x\n" 
+    ++ "let ++ x  = add x 1\n" 
+    ++ "main  = (1 + 2 * 4)!" 
 
+parsedProgram :: [([Parser.Declaration], [ExprToken])]
+parsedProgram = parseProgramWrap program
+
+buildFunction :: Expr -> [String] -> Expr
+buildFunction = foldr Lam 
+
+
+unary  f [x] = f x 
+binary f [x, y] = f x y
+definitions = 
+    M.fromList
+    [("+", binary add), ("*",binary times), 
+     ("(", unary $ App identity)]
+
+-- Temporary function for eval 
+buildLambdaExpr binded env expr = buildLambdaExpr' expr
+    where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
+          buildLambdaExpr' (Call x args) | elem x binded = 
+              do
+                lambdaArgs <- mapM buildLambdaExpr' args
+                return $ applyArgs (Var x) lambdaArgs
+          buildLambdaExpr' (Call x args) = 
+              do
+                lambdaArgs <- mapM buildLambdaExpr' args
+                definition <- M.lookup x env
+                return $ definition lambdaArgs
+          applyArgs = foldl App
+
+
+--       buildLambdaExpr' (Call "+" [x, y]) = add (buildLambdaExpr' x) (buildLambdaExpr' y)
+--           buildLambdaExpr' (Call "*" [x, y]) = times (buildLambdaExpr' x) (buildLambdaExpr' y)
+--           buildLambdaExpr' (Call "(" [x])    = App identity (buildLambdaExpr' x) 
+-- --  
+--        buildLambdaExpr' (Call "++" [x])   = add (buildLambdaExpr' x) (c 1)
+  
 --test :: Either [Char] SElement
 buildLambdaWrap s = 
-    liftM buildLambdaExpr (buildExpression s environment)
+      buildExpression s environment 
+      >>= maybeToList . buildLambdaExpr [] definitions
 
 evalExpr s = 
-  liftM (whnf . buildLambdaExpr) (buildExpression s environment)
---    liftM eval (buildExpression s environment)
+    liftM whnf $ buildLambdaWrap s 
 
 pp s = buildExpression s environment >>= pPrinter environment 
 
