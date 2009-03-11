@@ -15,9 +15,10 @@ We will just offer an operator of the form [_]
 
 {-# LANGUAGE NoMonomorphismRestriction #-}
 
-module Analyser (split, buildExpression, pPrinter, 
+module Analyser (split, buildTree, buildTreeFromTokens, pPrinter, 
                  SElement(SFunction, SInteger, SPartial),
                  ExprTree(Value, Call),
+                 sAnalyse,
                  Atom(IPrim, SPrim)) where
 
 import Control.Applicative ((<$>))
@@ -92,8 +93,8 @@ isValidToken i identifiers =
 
 -- Returns the possible operators given the environment and the string
 
---resolveOperator :: (Monad m) =>
---                   [Char] -> M.Map String a -> m [[ExprToken]]
+resolveOperator :: (Monad m) =>
+                   [Char] -> M.Map String a -> m [[ExprToken]]
 resolveOperator operator env =  
     mapM (mapM parseTokenWrap)
     . take 10 -- Just for reducing the amount of cases to try.
@@ -172,6 +173,7 @@ resolveDistfix xs =
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
 -- Builds a tree of integer values 
+buildExprTree :: (Monad m) => [SElement] -> m ExprTree
 buildExprTree [] = fail "Cannot build expression tree"
 buildExprTree [SInteger n] = return $ Value $ IPrim n
 buildExprTree [SPartial t] = return t
@@ -181,7 +183,8 @@ buildExprTree xs = do
     case ((fix opInfo), before, after) of
       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
-      (Prefix, _, []) -> fail $ "Expecting argument of " ++ opName
+                   -- fail $ "Expecting argument of " ++ opName
+      (Prefix, _, []) -> return $ Call opName [] -- Test
       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
       (Infix, _, _) -> do
                         par1 <- buildExprTree before
@@ -214,9 +217,13 @@ pPrinter env (Call op params) =
             format Infix (x1:x2:_) = return $ x1  ++ op ++ x2
             lformat = intercalate ","
                                              
-buildExpression :: String -> M.Map String OpInfo -> [ExprTree]
-buildExpression s env = 
+buildTree :: String -> M.Map String OpInfo -> [ExprTree]
+buildTree s env = 
      parseWrap s
      >>= sAnalyse env 
-     >>= (buildExprTree . resolveDistfix)
+     >>= buildExprTree . resolveDistfix
+
+buildTreeFromTokens tokens env = 
+    sAnalyse env tokens
+    >>= buildExprTree . resolveDistfix
 

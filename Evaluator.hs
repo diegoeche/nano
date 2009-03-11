@@ -6,6 +6,7 @@ import LambdaCalculus
 import Parser
 import qualified Data.Set as S
 import Data.Maybe
+
 --------------------------------------------------
 -- Test environment
 --------------------------------------------------
@@ -20,21 +21,6 @@ rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
 environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
 
-program =  
-    "let closed x + y = add x y\n" 
-    ++ "let infixl x * y = times x y\n" 
-    ++ "let suffix x ! = factorial x\n" 
-    ++ "let closed ( x ) = id x\n" 
-    ++ "let ++ x  = add x 1\n" 
-    ++ "main  = (1 + 2 * 4)!" 
-
-parsedProgram :: [([Parser.Declaration], [ExprToken])]
-parsedProgram = parseProgramWrap program
-
-buildFunction :: Expr -> [String] -> Expr
-buildFunction = foldr Lam 
-
-
 unary  f [x] = f x 
 binary f [x, y] = f x y
 definitions = 
@@ -42,7 +28,10 @@ definitions =
     [("+", binary add), ("*",binary times), 
      ("(", unary $ App identity)]
 
--- Temporary function for eval 
+buildLambdaExpr :: [String]
+                   -> M.Map String ([Expr] -> Expr)
+                   -> ExprTree
+                   -> Maybe Expr
 buildLambdaExpr binded env expr = buildLambdaExpr' expr
     where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
           buildLambdaExpr' (Call x args) | elem x binded = 
@@ -57,21 +46,53 @@ buildLambdaExpr binded env expr = buildLambdaExpr' expr
           applyArgs = foldl App
 
 
---       buildLambdaExpr' (Call "+" [x, y]) = add (buildLambdaExpr' x) (buildLambdaExpr' y)
---           buildLambdaExpr' (Call "*" [x, y]) = times (buildLambdaExpr' x) (buildLambdaExpr' y)
---           buildLambdaExpr' (Call "(" [x])    = App identity (buildLambdaExpr' x) 
--- --  
---        buildLambdaExpr' (Call "++" [x])   = add (buildLambdaExpr' x) (c 1)
-  
+createExprFromTokens :: [ExprToken]
+                        -> M.Map String OpInfo
+                        -> M.Map String ([Expr] -> Expr)
+                        -> [String]
+                        -> [Expr]
+createExprFromTokens tokens env defs vars = do
+      tree <- buildTreeFromTokens tokens env
+      maybeToList $ buildLambdaExpr vars defs tree
+    
+
+createDefinition :: Declaration
+                    -> M.Map String OpInfo
+                    -> M.Map String ([Expr] -> Expr)
+                    -> [(Expr, OpInfo)]
+createDefinition decl env defs = 
+    let vars = (bindedVars decl)
+        binded = map (\x -> (x, defaultPrefix x)) 
+                 . bindedVars $ decl
+        env' = foldr curryInsert env binded
+    in do
+      expr <- createExprFromTokens (definition decl) env' defs vars
+      return (foldr Lam expr vars, opInfo decl)
+    where curryInsert (x,y) = M.insert x y
+          defaultPrefix name = createOp 2 name LeftA Prefix
+
+createProgram env defs (declarations,main) = createProgram' env defs declarations
+    where createProgram' env' defs' [] = createExprFromTokens main env' defs' [] 
+    
+program =  
+       "let closed < x > = x + 1" 
+    ++ "let infixl x * y = times x y\n" 
+    ++ "let suffix x ! = factorial x\n" 
+    ++ "let closed ( x ) = id x\n" 
+    ++ "let ++ x  = add x 1\n" 
+    ++ "main  = (1 + 2 * 4)!" 
+
+parsedProgram :: [([Parser.Declaration], [ExprToken])]
+parsedProgram = parseProgramWrap program
+
 --test :: Either [Char] SElement
 buildLambdaWrap s = 
-      buildExpression s environment 
+      buildTree s environment 
       >>= maybeToList . buildLambdaExpr [] definitions
 
-evalExpr s = 
-    liftM whnf $ buildLambdaWrap s 
+evalExpr = liftM whnf . buildLambdaWrap 
 
-pp s = buildExpression s environment >>= pPrinter environment 
+pp s = buildTree s environment >>= pPrinter environment 
 
 {-
 Tests:
