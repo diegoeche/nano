@@ -164,19 +164,26 @@ resolveDistfix xs =
                 (x@(SFunction opInfo2)):xs ->
                     case fix opInfo2 of
                       Open _ -> resolveDistfix' (Just opInfo2) (before ++ [x] ++ after) [] xs  
-                      Close open | open == name opInfo -> do
-                                       inside <- buildExprTree after
-                                       resolveDistfix $ before ++ [SPartial $ Call open [inside]] ++ xs
+                      Close open | open == name opInfo -> 
+                                     let inside = buildExprTree after
+                                     in resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs
                       Close x -> fail $ "Closing operator found while expecting closing operator of" 
                                  ++ name opInfo 
                       _ -> resolveDistfix' current before (after ++ [x]) xs
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
 -- Builds a tree of integer values 
-buildExprTree :: (Monad m) => [SElement] -> m ExprTree
+--buildExprTree :: (Monad m) => [SElement] -> m ExprTree
+buildExprTree :: [SElement] -> [ExprTree]
 buildExprTree [] = fail "Cannot build expression tree"
-buildExprTree [SInteger n] = return $ Value $ IPrim n
-buildExprTree [SPartial t] = return t
+-- buildExprTree [SInteger n] = return $ Value $ IPrim n
+-- buildExprTree [SPartial t] = return t
+buildExprTree x | all isTree x = map toTree x 
+    where isTree (SInteger _) = True
+          isTree (SPartial _) = True
+          isTree _  = False
+          toTree (SInteger n) = Value $ IPrim n
+          toTree (SPartial t) = t
 buildExprTree xs = do
     (before, SFunction opInfo, after) <- split xs
     let opName = (name opInfo) 
@@ -186,22 +193,17 @@ buildExprTree xs = do
                    -- fail $ "Expecting argument of " ++ opName
       (Prefix, _, []) -> return $ Call opName [] -- Test
       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
-      (Infix, _, _) -> do
-                        par1 <- buildExprTree before
-                        par2 <- buildExprTree after
-                        return $ Call opName [par1, par2]
-      (Prefix, [], _) -> do
-                        right <- buildExprTree after
-                        return $ Call opName [right] 
-      (Prefix, _, _) -> do
-                        right <- buildExprTree after
-                        buildExprTree $ before ++ [(SPartial $ Call opName [right])]
-      (Suffix, _, []) -> do
-                        left <- buildExprTree before
-                        return $ Call opName [left]
-      (Suffix, _, _)-> do
-                        left <- buildExprTree before
-                        buildExprTree $ (SPartial $ Call opName [left]) : after
+      (Infix, _, _) -> let par1 = buildExprTree before
+                           par2 = buildExprTree after
+                       in return $ Call opName (par1 ++ par2)
+      (Prefix, [], _) -> let right = buildExprTree after
+                         in return $ Call opName right
+      (Prefix, _, _) -> let right = buildExprTree after
+                        in buildExprTree $ before ++ [(SPartial $ Call opName right)]
+      (Suffix, _, []) -> let left = buildExprTree before
+                         in return $ Call opName left
+      (Suffix, _, _)-> let left = buildExprTree before
+                       in buildExprTree $ (SPartial $ Call opName left) : after
 
 pPrinter _   (Value (IPrim n))  = return . show $ n
 pPrinter _   (Value (SPrim s))  = return . show $ s
@@ -227,3 +229,18 @@ buildTreeFromTokens tokens env =
     sAnalyse env tokens
     >>= buildExprTree . resolveDistfix
 
+--------------------------------------------------
+-- Test
+--------------------------------------------------
+createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
+                                    assoc = a, fix = f, isRec = False})
+
+plusS     = createOpTuple 1 "+"  LeftA Infix
+timesS    = createOpTuple 2 "*"  RightA Infix
+incr      = createOpTuple 2 "++" RightA Prefix
+lParenS   = createOpTuple 5 "("  LeftA  (Open  ")") 
+rParenS   = createOpTuple 5 ")"  RightA (Close "(")
+
+environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
+
+--buildTree "(1 2)" environment

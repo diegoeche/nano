@@ -10,7 +10,7 @@ module Parser (parseWrap,
                parseTokenWrap,
                parseProgramWrap,
                Assoc(LeftA, RightA),
-               fix, precedence, name,
+               fix, precedence, name,isRec,
                assoc, OpInfo(OpInfo),
                Declaration(Decl),opInfo,
                createOp,
@@ -41,7 +41,8 @@ data OpInfo = OpInfo {
       name :: String,
       precedence :: Int,
       assoc :: Assoc,
-      fix :: Fixing
+      fix :: Fixing,
+      isRec :: Bool
     } deriving (Show,Eq)
 
 -- Function Declaration 
@@ -50,8 +51,8 @@ data Declaration = Decl {opInfo :: OpInfo,
                          definition :: [ExprToken]
                         } deriving (Show,Eq)
 -- Creates an OpInfo
-createOp p n a f = OpInfo {precedence = p, name = n,
-                           assoc = a, fix = f}
+createOp p n a f r = OpInfo {precedence = p, name = n,
+                           assoc = a, fix = f, isRec = r}
 
 -- The key for our programming language. 
 -- Permissive identifiers
@@ -72,9 +73,11 @@ pNatural =  P.natural lexer
 pIdentifier = P.identifier lexer
 
 -- Reserved words parsers.
-[pClosedW, pSuffixW, pLetW, pEqualsW, pMainW] = 
+[pClosedW, pSuffixW, pLetW, pEqualsW, pMainW, pRecW] = 
     map (P.reserved lexer) 
-            ["closed", "suffix", "let", "=", "main"]
+            ["closed", "suffix", "let", "=", "main", "rec"]
+
+pRec = option False (const True <$> pRecW)
 
 pInfix = 
         const RightA <$> reserved "infixr"
@@ -93,21 +96,24 @@ parseToken = LiteralToken <$> pLiteral
 --------------------------------------------------
 pExprElems = many parseToken
 pDefinition = pEqualsW >> pExprElems
+
     
 pSuffixDef = do
   pLetW
+  isRec <- pRec
   pSuffixW
   name:params <- liftM reverse $ many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Suffix,
+  return Decl {opInfo = createOp 3 name LeftA Suffix isRec,
                bindedVars = reverse params,
                definition = def} 
 
 pPrefixDef = do
   pLetW
+  isRec <- pRec
   name:params <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Prefix,
+  return Decl {opInfo = createOp 3 name LeftA Prefix isRec,
                bindedVars = params,
                definition = def} 
 
@@ -115,20 +121,22 @@ pPrefixDef = do
 -- Maybe later we should explore if this restriction is necessary.
 pInfixDef = do
   pLetW
+  isRec <- pRec
   assoc <- pInfix
   [p1,op,p2] <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 op assoc Infix,
+  return Decl {opInfo = createOp 3 op assoc Infix isRec,
                bindedVars = [p1,p2],
                definition = def} 
 
 pClosedDef = do
   pLetW
+  isRec <- pRec
   pClosedW
   open:rest <- many pIdentifier
   let close: args = reverse rest
   def <- pDefinition
-  return Decl {opInfo = createOp 3 open LeftA $ Open close,
+  return Decl {opInfo = createOp 3 open LeftA (Open close) isRec, 
                bindedVars = reverse args,
                definition = def} 
 
@@ -174,5 +182,4 @@ parseTokenWrap = wrap . parse p ""
 parseWrap :: (Monad m) => String -> m [ExprToken]
 parseWrap = wrap . parse pExprElems ""
 
-parseProgramWrap = wrap . parse (pProgram) ""
-
+parseProgramWrap = wrap . parse pProgram ""

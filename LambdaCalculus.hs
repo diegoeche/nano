@@ -1,4 +1,5 @@
-module LambdaCalculus (whnf, add, times, ifthenelse, yComb, c, identity,
+module LambdaCalculus (whnf, add, minus, equals, 
+                       true, false, times, ifthenelse, yComb, c, identity,
                        Expr(Const, Var, Lam, App),
                        Constant(Data, Prim)) where
 
@@ -37,7 +38,7 @@ c = Const . Data
 true = Lam x (Lam y (Var x))
 false = Lam x (Lam y (Var y))
 neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
-ifthenelse = Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z))))
+ifthenelse params = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z))))) params
 
 -- Y Combinator to implement recursion.
 -- Y = λ g. (λ x. g (x x)) (λ x. g (x x))
@@ -101,13 +102,13 @@ substVar :: String -> String -> Expr -> Expr
 substVar s = subst s . Var 
 
 -- Recursion Example:
-fact = Lam "fact" 
-       $ Lam "n" 
-       $ App (App (App ifthenelse (equals (c 0) (Var "n"))) 
-                (Const $ Data 1)) 
-       (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1))))
+-- fact = Lam "fact" 
+--        $ Lam "n" 
+--        $ App (App (App ifthenelse (equals (c 0) (Var "n"))) 
+--                 (Const $ Data 1)) 
+--        (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1))))
 
-recFact = App (App yComb fact) . c
+--recFact = App (App yComb fact) . c
 
 {-
 -- whnf $ times (c 2) $ add (c 2) (c 5) 
