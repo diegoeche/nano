@@ -27,6 +27,7 @@ import qualified Data.Map as M hiding (split)
 import qualified Data.Set as Set
 import Data.List  
 import Data.Maybe
+import Data.Either
 import Data.Char
 import Parser
 
@@ -72,12 +73,12 @@ tokenToSElement env (FunctionToken x) =
 
 -- Lookup of expression Elements.
 -- If we cannot resolve any of the symbols we fail.
--- sAnalyse :: (Monad m, Functor m) =>
---             M.Map String OpInfo -> 
---             [ExprToken] -> 
---             m [SElement]
+sAnalyse :: M.Map String OpInfo
+            -> [ExprToken]
+            -> Either String [[SElement]]
 sAnalyse env tokens = 
-    map concat
+    Right
+    $ map concat
     $ mapM t tokens 
     where t (LiteralToken (NInteger int)) = return $ return $ SInteger int
           t (FunctionToken x) = do
@@ -93,8 +94,8 @@ isValidToken i identifiers =
 
 -- Returns the possible operators given the environment and the string
 
-resolveOperator :: (Monad m) =>
-                   [Char] -> M.Map String a -> m [[ExprToken]]
+--resolveOperator :: (Monad m) =>
+--                   [Char] -> M.Map String a -> m [[ExprToken]]
 resolveOperator operator env =  
     mapM (mapM parseTokenWrap)
     . take 10 -- Just for reducing the amount of cases to try.
@@ -119,17 +120,6 @@ resolveOperator operator env =
                                 else [s1, s2]  
                            else [s1] 
 
-
--- This function will be used for building the Expression Tree
-split :: (Ord a, Monad m) => [a] -> m ([a], a, [a])
-split ([]) = fail "Cannot split empty list"
-split (x:xs) = return $ splitAccum [] x [] xs
-    where 
-      splitAccum before value after [] = (before,value,after)
-      splitAccum b v a (x:xs) = 
-          if x > v then splitAccum (b ++ [v] ++ a) x [] xs 
-          else splitAccum b v (a ++ [x]) xs
-
 -- The structure behind the types and values?
 data Atom = IPrim Integer 
           | SPrim String 
@@ -141,13 +131,23 @@ data ExprTree = Value Atom
               | Call String [ExprTree]
                 deriving (Show,Eq)
 
+-- This function is used for building the Expression Tree
+split :: (Ord a, Monad m) => [a] -> m ([a], a, [a])
+split ([]) = fail "Cannot split empty list"
+split (x:xs) = return $ splitAccum [] x [] xs
+    where 
+      splitAccum before value after [] = (before,value,after)
+      splitAccum b v a (x:xs) = 
+          if x > v then splitAccum (b ++ [v] ++ a) x [] xs 
+          else splitAccum b v (a ++ [x]) xs
+
 -- Generates SPartial constructors from the distfix operators in the
 -- expression
 -- Maybe wrap this inside of a Monad to avoid loosing the fail messages?
-resolveDistfix :: [SElement] -> [SElement]
+-- resolveDistfix :: [SElement] -> [SElement]
 resolveDistfix xs = 
     resolveDistfix' Nothing [] [] xs
-    where resolveDistfix' Nothing before after [] = before
+    where resolveDistfix' Nothing before after [] = return before
           resolveDistfix' Nothing before after ((SFunction opInfo):xs) 
               | isOpen  $ fix opInfo = resolveDistfix'(Just opInfo) before [] xs
               | isClose $ fix opInfo = fail $ "Found close operator " 
@@ -165,20 +165,50 @@ resolveDistfix xs =
                     case fix opInfo2 of
                       Open _ -> resolveDistfix' (Just opInfo2) (before ++ [x] ++ after) [] xs  
                       Close open | open == name opInfo -> 
-                                     let inside = buildExprTree after
-                                     in resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs
+                                     do inside <- buildExprTree after
+                                        resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs
                       Close x -> fail $ "Closing operator found while expecting closing operator of" 
                                  ++ name opInfo 
                       _ -> resolveDistfix' current before (after ++ [x]) xs
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
--- Builds a tree of integer values 
---buildExprTree :: (Monad m) => [SElement] -> m ExprTree
-buildExprTree :: [SElement] -> [ExprTree]
+-- -- Builds a tree of integer values 
+
+-- --buildExprTree :: [SElement] -> [ExprTree]
+-- buildExprTree [] = fail "Cannot build expression tree"
+-- -- buildExprTree [SInteger n] = return $ Value $ IPrim n
+-- -- buildExprTree [SPartial t] = return t
+-- buildExprTree x | all isTree x = map toTree x 
+--     where isTree (SInteger _) = True
+--           isTree (SPartial _) = True
+--           isTree _  = False
+--           toTree (SInteger n) = Value $ IPrim n
+--           toTree (SPartial t) = t
+-- buildExprTree xs = do
+--     (before, SFunction opInfo, after) <- split xs
+--     let opName = (name opInfo) 
+--     case ((fix opInfo), before, after) of
+--       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
+--       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
+--                    -- fail $ "Expecting argument of " ++ opName
+--       (Prefix, _, []) -> return $ Call opName [] -- Test
+--       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
+--       (Infix, _, _) -> let par1 = buildExprTree before
+--                            par2 = buildExprTree after
+--                        in return $ Call opName (par1 ++ par2)
+--       (Prefix, [], _) -> let right = buildExprTree after
+--                          in return $ Call opName right
+--       (Prefix, _, _) -> let right = buildExprTree after
+--                         in buildExprTree $ before ++ [(SPartial $ Call opName right)]
+--       (Suffix, _, []) -> let left = buildExprTree before
+--                          in return $ Call opName left
+--       (Suffix, _, _)-> let left = buildExprTree before
+--                        in buildExprTree $ (SPartial $ Call opName left) : after
+
+--buildExprTree2 :: (Monad m) => [SElement] -> m [ExprTree]
+buildExprTree :: [SElement] -> Either String [ExprTree]
 buildExprTree [] = fail "Cannot build expression tree"
--- buildExprTree [SInteger n] = return $ Value $ IPrim n
--- buildExprTree [SPartial t] = return t
-buildExprTree x | all isTree x = map toTree x 
+buildExprTree x | all isTree x = return $ map toTree x 
     where isTree (SInteger _) = True
           isTree (SPartial _) = True
           isTree _  = False
@@ -191,19 +221,20 @@ buildExprTree xs = do
       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
                    -- fail $ "Expecting argument of " ++ opName
-      (Prefix, _, []) -> return $ Call opName [] -- Test
+      (Prefix, _, []) -> return [Call opName []] -- Test
       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
-      (Infix, _, _) -> let par1 = buildExprTree before
-                           par2 = buildExprTree after
-                       in return $ Call opName (par1 ++ par2)
-      (Prefix, [], _) -> let right = buildExprTree after
-                         in return $ Call opName right
-      (Prefix, _, _) -> let right = buildExprTree after
-                        in buildExprTree $ before ++ [(SPartial $ Call opName right)]
-      (Suffix, _, []) -> let left = buildExprTree before
-                         in return $ Call opName left
-      (Suffix, _, _)-> let left = buildExprTree before
-                       in buildExprTree $ (SPartial $ Call opName left) : after
+      (Infix, _, _) -> do par1 <- buildExprTree before
+                          par2 <- buildExprTree after
+                          return [Call opName (par1 ++ par2)]
+      (Prefix, [], _) -> do right <- buildExprTree after
+                            return [Call opName right]
+      (Prefix, _, _) -> do right <- buildExprTree after
+                           buildExprTree $ before ++ [(SPartial $ Call opName right)]
+      (Suffix, _, []) -> do left <- buildExprTree before
+                            return [Call opName left]
+      (Suffix, _, _)-> do left <- buildExprTree before
+                          buildExprTree $ (SPartial $ Call opName left) : after
+
 
 pPrinter _   (Value (IPrim n))  = return . show $ n
 pPrinter _   (Value (SPrim s))  = return . show $ s
@@ -219,15 +250,30 @@ pPrinter env (Call op params) =
             format Infix (x1:x2:_) = return $ x1  ++ op ++ x2
             lformat = intercalate ","
                                              
-buildTree :: String -> M.Map String OpInfo -> [ExprTree]
-buildTree s env = 
-     parseWrap s
-     >>= sAnalyse env 
-     >>= buildExprTree . resolveDistfix
+--buildTree :: String -> M.Map String OpInfo -> [ExprTree]
+buildTree s env = do
+     parsed <- parseWrap s
+     analysed <- sAnalyse env parsed
+     return analysed
+     let noDistfix = do
+                    selems <- analysed
+                    return $ resolveDistfix selems
+     noDistfix' <- sequence noDistfix
+     let tree = do 
+           selems <- noDistfix'
+           return $ buildExprTree selems
+     case partitionEithers tree of
+       (l,[]) -> Left $ "Could not build tree from the: " ++ s 
+                       ++ "expression" ++ intercalate "\n" l
+       (_,x)     -> Right x
+--       (_,_:_:_)    -> Left $ "Ambiguous definition of: " ++ s
+--       x            -> Left $ show x
 
 buildTreeFromTokens tokens env = 
     sAnalyse env tokens
-    >>= buildExprTree . resolveDistfix
+--    >>= resolveDistfix
+--    >>= buildExprTree 
+
 
 --------------------------------------------------
 -- Test
@@ -243,4 +289,4 @@ rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
 environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
 
---buildTree "(1 2)" environment
+--buildTree "1 + (1 2)" environment

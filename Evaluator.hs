@@ -7,6 +7,9 @@ import Parser
 import qualified Data.Set as S
 import Data.Maybe
 
+
+-- Builds a lambda expression using the tree of operator calling. 
+-- The previous definitions of operators. And the binded variables. 
 buildLambdaExpr :: [String]
                    -> M.Map String ([Expr] -> Expr)
                    -> ExprTree
@@ -23,6 +26,8 @@ buildLambdaExpr binded env expr = buildLambdaExpr' expr
                 definition <- M.lookup x env
                 return $ definition lambdaArgs
 
+
+-- Builds a lambda expression using the list of tokens.
 createExprFromTokens :: [ExprToken]
                         -> M.Map String OpInfo
                         -> M.Map String ([Expr] -> Expr)
@@ -32,17 +37,20 @@ createExprFromTokens tokens env defs vars = do
       tree <- buildTreeFromTokens tokens env
       maybeToList $ buildLambdaExpr vars defs tree
 
+-- Takes the function declaration type and builds a definition.
 createDefinition :: Declaration
                     -> M.Map String OpInfo
                     -> M.Map String ([Expr] -> Expr)
                     -> [(Expr, OpInfo)]
 createDefinition decl env defs = 
     let opInfo' = opInfo decl
+        name' = name opInfo'
         vars =  if isRec opInfo' 
-                then name opInfo': bindedVars decl
+                then name':bindedVars decl
                 else bindedVars decl
-        binded = map (\x -> (x, defaultPrefix x)) 
-                 $ vars
+        binded = ((name', opInfo'):) 
+                 . map (\x -> (x, defaultPrefix x)) 
+                 $ bindedVars decl
         env' = foldr curryInsert env binded
     in do
       expr <- createExprFromTokens (definition decl) env' defs vars
@@ -144,7 +152,7 @@ pp "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
 buildLambdaWrap "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 * (1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 ) )" 
 evalExpr "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 * (1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 ) )" 
 [Const (Data 189)]
-executeProgram "let rec fact n = ifThenElse (0 == n) 1 ((n) * (fact (n - 1))) main = fact 4"
+executeProgram "let rec fact n = ifThenElse (0 == n) 1 ((n) * (fact (n - 1))) main = fact 6"
 
 liftM whnf $ parseProgramWrap "let suffix x ! = x + 1 let suffix x $ = (2 + x)!! main = (1 + 2 * 4)$$" >>= createProgram environment definitions
 -}

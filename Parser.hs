@@ -172,6 +172,7 @@ data Fixing = Suffix | Prefix | Infix
 wrap (Left err) = fail $ "Parse Error!\n" ++ show err
 wrap (Right x) = return x
 
+parseTokenWrap :: (Monad m) => String -> m ExprToken
 parseTokenWrap = wrap . parse p "" 
     where p = do 
             result <- parseToken
