@@ -73,12 +73,8 @@ tokenToSElement env (FunctionToken x) =
 
 -- Lookup of expression Elements.
 -- If we cannot resolve any of the symbols we fail.
-sAnalyse :: M.Map String OpInfo
-            -> [ExprToken]
-            -> Either String [[SElement]]
 sAnalyse env tokens = 
-    Right
-    $ map concat
+    map concat
     $ mapM t tokens 
     where t (LiteralToken (NInteger int)) = return $ return $ SInteger int
           t (FunctionToken x) = do
@@ -143,8 +139,7 @@ split (x:xs) = return $ splitAccum [] x [] xs
 
 -- Generates SPartial constructors from the distfix operators in the
 -- expression
--- Maybe wrap this inside of a Monad to avoid loosing the fail messages?
--- resolveDistfix :: [SElement] -> [SElement]
+resolveDistfix :: [SElement] -> Either String [SElement]
 resolveDistfix xs = 
     resolveDistfix' Nothing [] [] xs
     where resolveDistfix' Nothing before after [] = return before
@@ -221,7 +216,10 @@ buildExprTree xs = do
       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
                    -- fail $ "Expecting argument of " ++ opName
-      (Prefix, _, []) -> return [Call opName []] -- Test
+      (Prefix, _, []) -> 
+          if arity opInfo == 0 then 
+              return [Call opName []] -- Test
+          else fail $ "Expecting argument of " ++ opName
       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
       (Infix, _, _) -> do par1 <- buildExprTree before
                           par2 <- buildExprTree after
@@ -253,24 +251,31 @@ pPrinter env (Call op params) =
 --buildTree :: String -> M.Map String OpInfo -> [ExprTree]
 buildTree s env = do
      parsed <- parseWrap s
-     analysed <- sAnalyse env parsed
-     return analysed
-     let noDistfix = do
-                    selems <- analysed
-                    return $ resolveDistfix selems
-     noDistfix' <- sequence noDistfix
-     let tree = do 
-           selems <- noDistfix'
-           return $ buildExprTree selems
-     case partitionEithers tree of
-       (l,[]) -> Left $ "Could not build tree from the: " ++ s 
-                       ++ "expression" ++ intercalate "\n" l
-       (_,x)     -> Right x
---       (_,_:_:_)    -> Left $ "Ambiguous definition of: " ++ s
---       x            -> Left $ show x
+     let noDistfix = map resolveDistfix $ sAnalyse env parsed
+     case partitionEithers noDistfix of
+         (l,[])       -> Left $ "Could not build tree from the: " ++ s 
+                         ++ " expression " ++ intercalate "\n" l
+         (_,x)        ->
+             case partitionEithers $ map buildExprTree x of
+               (l,[])     -> Left $ "Could not build tree from the: " ++ s 
+                             ++ "expression" ++ intercalate "\n" l
+               (_,[[s]])    -> Right s
+               (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ s
 
 buildTreeFromTokens tokens env = 
-    sAnalyse env tokens
+     let noDistfix = map resolveDistfix $ sAnalyse env tokens
+     in         
+       case partitionEithers noDistfix of
+           (l,[])       -> Left $ "Could not build tree from tokens: " ++ show tokens 
+                           ++ " expression " ++ intercalate "\n" l
+           (_,x)        ->
+               case partitionEithers $ map buildExprTree x of
+                 (l,[])     -> Left $ "Could not build tree from the: " ++ show tokens 
+                             ++ "expression" ++ intercalate "\n" l
+                 (_,[[s]])    -> Right s
+                 (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
+
+
 --    >>= resolveDistfix
 --    >>= buildExprTree 
 
@@ -278,8 +283,8 @@ buildTreeFromTokens tokens env =
 --------------------------------------------------
 -- Test
 --------------------------------------------------
-createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
-                                    assoc = a, fix = f, isRec = False})
+createOpTuple p n a f  = (n, OpInfo {precedence = p, name = n,
+                                     assoc = a, fix = f, isRec = False, arity = 1})
 
 plusS     = createOpTuple 1 "+"  LeftA Infix
 timesS    = createOpTuple 2 "*"  RightA Infix
@@ -289,4 +294,4 @@ rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
 environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
 
---buildTree "1 + (1 2)" environment
+--buildTree "(1 +++ 2)" environment

@@ -1,3 +1,5 @@
+module Evaluator(executeProgram) where
+
 import Analyser 
 import Control.Monad
 import qualified Data.Map as M 
@@ -6,14 +8,11 @@ import LambdaCalculus
 import Parser
 import qualified Data.Set as S
 import Data.Maybe
+--import Control.Applicative ((<*>))
 
 
 -- Builds a lambda expression using the tree of operator calling. 
 -- The previous definitions of operators. And the binded variables. 
-buildLambdaExpr :: [String]
-                   -> M.Map String ([Expr] -> Expr)
-                   -> ExprTree
-                   -> Maybe Expr
 buildLambdaExpr binded env expr = buildLambdaExpr' expr
     where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
           buildLambdaExpr' (Call x args) | elem x binded = 
@@ -23,25 +22,19 @@ buildLambdaExpr binded env expr = buildLambdaExpr' expr
           buildLambdaExpr' (Call x args) = 
               do
                 lambdaArgs <- mapM buildLambdaExpr' args
-                definition <- M.lookup x env
+                definition <- lookup x env
                 return $ definition lambdaArgs
+          lookup x env = case M.lookup x env of
+                         Just x -> Right x
+                         _      -> Left $ "Could not find " ++ show x
 
 
 -- Builds a lambda expression using the list of tokens.
-createExprFromTokens :: [ExprToken]
-                        -> M.Map String OpInfo
-                        -> M.Map String ([Expr] -> Expr)
-                        -> [String]
-                        -> [Expr]
-createExprFromTokens tokens env defs vars = do
-      tree <- buildTreeFromTokens tokens env
-      maybeToList $ buildLambdaExpr vars defs tree
+createExprFromTokens tokens env defs vars = --do
+--  Left ""
+     buildTreeFromTokens tokens env >>= buildLambdaExpr vars defs
 
 -- Takes the function declaration type and builds a definition.
-createDefinition :: Declaration
-                    -> M.Map String OpInfo
-                    -> M.Map String ([Expr] -> Expr)
-                    -> [(Expr, OpInfo)]
 createDefinition decl env defs = 
     let opInfo' = opInfo decl
         name' = name opInfo'
@@ -60,7 +53,7 @@ createDefinition decl env defs =
                     else expr'
       return (recExpr, opInfo decl)
     where curryInsert (x,y) = M.insert x y
-          defaultPrefix name = createOp 2 name LeftA Prefix False
+          defaultPrefix name = createOp 5 name LeftA Prefix False 0
 
 createProgram env defs (declarations,main) = createProgram' env defs declarations
     where createProgram' env' defs' [] = createExprFromTokens main env' defs' [] 
@@ -83,7 +76,7 @@ executeProgram s = liftM whnf $ parseProgramWrap s
 -- Test environment
 --------------------------------------------------
 createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
-                                    assoc = a, fix = f, isRec = False})
+                                    assoc = a, fix = f, isRec = False, arity = 2})
 
 plusS       = createOpTuple 1 "+"  LeftA Infix
 minusS      = createOpTuple 1 "-"  LeftA Infix
@@ -132,12 +125,12 @@ program3 = intercalate "\n" [
             "main = add 5 6"]
 
 buildLambdaWrap s = 
-      buildTree s environment 
-      >>= maybeToList . buildLambdaExpr [] definitions
+       buildTree s environment 
+       >>= buildLambdaExpr [] definitions
 
 evalExpr = liftM whnf . buildLambdaWrap 
 
-pp s = buildTree s environment >>= pPrinter environment 
+--pp s = buildTree s environment >>= pPrinter environment 
 
 {-
 Tests:

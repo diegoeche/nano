@@ -10,7 +10,7 @@ module Parser (parseWrap,
                parseTokenWrap,
                parseProgramWrap,
                Assoc(LeftA, RightA),
-               fix, precedence, name,isRec,
+               fix, precedence, name,isRec,arity,
                assoc, OpInfo(OpInfo),
                Declaration(Decl),opInfo,
                createOp,
@@ -42,7 +42,8 @@ data OpInfo = OpInfo {
       precedence :: Int,
       assoc :: Assoc,
       fix :: Fixing,
-      isRec :: Bool
+      isRec :: Bool,
+      arity :: Int
     } deriving (Show,Eq)
 
 -- Function Declaration 
@@ -51,8 +52,10 @@ data Declaration = Decl {opInfo :: OpInfo,
                          definition :: [ExprToken]
                         } deriving (Show,Eq)
 -- Creates an OpInfo
-createOp p n a f r = OpInfo {precedence = p, name = n,
-                           assoc = a, fix = f, isRec = r}
+createOp p n a f r ar = OpInfo {precedence = p, name = n,
+                               assoc = a, fix = f, isRec = r,
+                               arity = ar
+                              }
 
 -- The key for our programming language. 
 -- Permissive identifiers
@@ -104,7 +107,7 @@ pSuffixDef = do
   pSuffixW
   name:params <- liftM reverse $ many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Suffix isRec,
+  return Decl {opInfo = createOp 3 name LeftA Suffix isRec $ length params,
                bindedVars = reverse params,
                definition = def} 
 
@@ -113,7 +116,7 @@ pPrefixDef = do
   isRec <- pRec
   name:params <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Prefix isRec,
+  return Decl {opInfo = createOp 3 name LeftA Prefix isRec $ length params,
                bindedVars = params,
                definition = def} 
 
@@ -125,7 +128,7 @@ pInfixDef = do
   assoc <- pInfix
   [p1,op,p2] <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 op assoc Infix isRec,
+  return Decl {opInfo = createOp 3 op assoc Infix isRec 2,
                bindedVars = [p1,p2],
                definition = def} 
 
@@ -136,7 +139,7 @@ pClosedDef = do
   open:rest <- many pIdentifier
   let close: args = reverse rest
   def <- pDefinition
-  return Decl {opInfo = createOp 3 open LeftA (Open close) isRec, 
+  return Decl {opInfo = createOp 3 open LeftA (Open close) isRec $ length args, 
                bindedVars = reverse args,
                definition = def} 
 
