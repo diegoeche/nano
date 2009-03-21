@@ -206,9 +206,11 @@ buildExprTree [] = fail "Cannot build expression tree"
 buildExprTree x | all isTree x = return $ map toTree x 
     where isTree (SInteger _) = True
           isTree (SPartial _) = True
-          isTree _  = False
+          isTree (SFunction opInfo) = arity opInfo == 0
+--          isTree _  = False
           toTree (SInteger n) = Value $ IPrim n
           toTree (SPartial t) = t
+          toTree (SFunction opInfo) = Call (name opInfo) []
 buildExprTree xs = do
     (before, SFunction opInfo, after) <- split xs
     let opName = (name opInfo) 

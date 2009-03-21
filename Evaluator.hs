@@ -53,7 +53,7 @@ createDefinition decl env defs =
                     else expr'
       return (recExpr, opInfo decl)
     where curryInsert (x,y) = M.insert x y
-          defaultPrefix name = createOp 5 name LeftA Prefix False 0
+          defaultPrefix name = createOp 1000 name LeftA Prefix False 0
 
 createProgram env defs (declarations,main) = createProgram' env defs declarations
     where createProgram' env' defs' [] = createExprFromTokens main env' defs' [] 
