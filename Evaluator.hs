@@ -8,8 +8,6 @@ import LambdaCalculus
 import Parser
 import qualified Data.Set as S
 import Data.Maybe
---import Control.Applicative ((<*>))
-
 
 -- Builds a lambda expression using the tree of operator calling. 
 -- The previous definitions of operators. And the binded variables. 
@@ -55,22 +53,29 @@ createDefinition decl env defs =
     where curryInsert (x,y) = M.insert x y
           defaultPrefix name = createOp 1000 name LeftA Prefix False 0
 
-createProgram env defs (declarations,main) = createProgram' env defs declarations
-    where createProgram' env' defs' [] = createExprFromTokens main env' defs' [] 
-          createProgram' env' defs' (decl:decls) = 
-              do
-                (def, opInfo) <- createDefinition decl env' defs' 
-                let name' = name opInfo 
-                    env'' = (M.insert name' opInfo env') 
-                case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
-                  Close x -> createProgram' (M.insert x (opInfo {fix = Open name'}) env'') 
-                               (M.insert name' (\x -> applyArgs def x) defs') decls
-                  Open x -> createProgram' (M.insert x (opInfo {fix = Close name'}) env'') 
-                               (M.insert name' (\x -> applyArgs def x) defs') decls
-                  _ -> createProgram' env'' (M.insert name' (\x -> applyArgs def x) defs') decls
+getDefinitions env' defs' [] = return (env', defs')
+getDefinitions env' defs' (decl:decls) = 
+    do
+      (def, opInfo) <- createDefinition decl env' defs' 
+      let name' = name opInfo 
+          env'' = (M.insert name' opInfo env') 
+      case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
+        Close x -> getDefinitions (M.insert x (opInfo {fix = Open name'}) env'') 
+                   (M.insert name' (\x -> applyArgs def x) defs') decls
+        Open x -> getDefinitions (M.insert x (opInfo {fix = Close name'}) env'') 
+                  (M.insert name' (\x -> applyArgs def x) defs') decls
+        _ -> getDefinitions env'' (M.insert name' (\x -> applyArgs def x) defs') decls
 
-executeProgram s = liftM whnf $ parseProgramWrap s
+createProgram env defs (declarations,main) = do
+  (env', defs') <- getDefinitions env defs declarations
+  createExprFromTokens main env' defs' []
+
+executeProgram s = liftM whnf 
+                   $ parseProgramWrap s
                    >>= createProgram environment definitions
+
+symbolTables s = parseProgramWrap s
+                 >>= (getDefinitions environment definitions . fst)
 
 --------------------------------------------------
 -- Test environment
@@ -105,24 +110,6 @@ definitions =
      ("true", const true),
      ("false", const false),
      ("ifThenElse", ifthenelse)]
-
-program =  
-       "let closed < x > = x + 1" 
-    ++ "let infixl x * y = times x y\n" 
-    ++ "let suffix x ! = factorial x\n" 
-    ++ "let closed ( x ) = id x\n" 
-    ++ "let ++ x  = add x 1\n" 
-    ++ "main  = (1 + 2 * 4)!" 
-
-program2 = intercalate "\n" [ 
-            "let incr = 1",
-            "let suffix x ! = incr + x",
-            "let closed < x > = (x)!!!!",
-            "main = <1+2*3>!"]
-
-program3 = intercalate "\n" [ 
-            "let add x y = x + y",
-            "main = add 5 6"]
 
 buildLambdaWrap s = 
        buildTree s environment 

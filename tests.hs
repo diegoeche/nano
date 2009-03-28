@@ -3,7 +3,7 @@ import Test.QuickCheck
 import Analyser
 import Evaluator
 import LambdaCalculus
-
+import Data.List
 deepCheck = check (defaultConfig { configMaxTest = 1000})
 
 splitConcat :: (Ord a) => [a] -> Maybe Bool
@@ -44,12 +44,27 @@ laziness = executeProgram "let rec x = x \
 -- Test for resolving ambiguous operators. 
 -- "+++++++" can be interpreted in a number of ways. Given the current environment 
 -- the only one that has some sense is (1 + (++(++(++ 3)))) nano is able of discovering this.
-ambiguosOp = executeProgram "let ++ x = x + 1 \
+ambiguousOp = executeProgram "let ++ x = x + 1 \
                             \main = 1 +++++++ 3"  == Right (Const $ Data 7)
+
+
+-- Other examples.
+closedOps = (executeProgram . intercalate "\n")  
+            ["let incr = 1",
+             "let suffix x ! = incr + x",
+             "let closed < x > = x!!!!",
+             "main = <1+2*3>!"]
+
+prefixOp = (executeProgram . intercalate "\n")
+           ["let add x y = x + y",
+            "main = add 5 6"]
 
 tests = [("factorial", factorial),
          ("pow", pow),
          ("laziness",laziness),
-         ("ambiguosOp",ambiguosOp)]
+         ("ambiguousOp",ambiguousOp)]
 
 failed = map fst $ filter (not . snd) tests
+
+
+

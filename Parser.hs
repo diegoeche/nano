@@ -24,7 +24,7 @@ module Parser (parseWrap,
 import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.ParserCombinators.Parsec.Language 
 import Text.Parsec
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), pure)
 import Control.Monad
 
 -- Literal Definition. In the moment just strings 
@@ -80,11 +80,11 @@ pIdentifier = P.identifier lexer
     map (P.reserved lexer) 
             ["closed", "suffix", "let", "=", "main", "rec"]
 
-pRec = option False (const True <$> pRecW)
+pRec = option False (pure True <$> pRecW)
 
 pInfix = 
-        const RightA <$> reserved "infixr"
-    <|> const LeftA <$> reserved "infixl"
+        pure RightA <$> reserved "infixr"
+    <|> pure LeftA <$> reserved "infixl"
     where reserved = P.reserved lexer
     
 pLiteral = 
