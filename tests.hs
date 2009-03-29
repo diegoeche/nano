@@ -66,5 +66,5 @@ tests = [("factorial", factorial),
 
 failed = map fst $ filter (not . snd) tests
 
-
-
+typeTest = (executeProgram . intercalate "\n")
+           ["main = 5 + (6 == 3)"]

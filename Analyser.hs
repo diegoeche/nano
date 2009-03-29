@@ -41,8 +41,6 @@ data SElement = SInteger Integer
               | SPartial ExprTree -- Partially builded trees.
                deriving (Show,Eq)
 
-
-
 -- We need this to make the split work.
 instance Ord SElement where
     compare (SInteger _) _ = LT
@@ -167,47 +165,14 @@ resolveDistfix xs =
                       _ -> resolveDistfix' current before (after ++ [x]) xs
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs
 
--- -- Builds a tree of integer values 
-
--- --buildExprTree :: [SElement] -> [ExprTree]
--- buildExprTree [] = fail "Cannot build expression tree"
--- -- buildExprTree [SInteger n] = return $ Value $ IPrim n
--- -- buildExprTree [SPartial t] = return t
--- buildExprTree x | all isTree x = map toTree x 
---     where isTree (SInteger _) = True
---           isTree (SPartial _) = True
---           isTree _  = False
---           toTree (SInteger n) = Value $ IPrim n
---           toTree (SPartial t) = t
--- buildExprTree xs = do
---     (before, SFunction opInfo, after) <- split xs
---     let opName = (name opInfo) 
---     case ((fix opInfo), before, after) of
---       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
---       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
---                    -- fail $ "Expecting argument of " ++ opName
---       (Prefix, _, []) -> return $ Call opName [] -- Test
---       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
---       (Infix, _, _) -> let par1 = buildExprTree before
---                            par2 = buildExprTree after
---                        in return $ Call opName (par1 ++ par2)
---       (Prefix, [], _) -> let right = buildExprTree after
---                          in return $ Call opName right
---       (Prefix, _, _) -> let right = buildExprTree after
---                         in buildExprTree $ before ++ [(SPartial $ Call opName right)]
---       (Suffix, _, []) -> let left = buildExprTree before
---                          in return $ Call opName left
---       (Suffix, _, _)-> let left = buildExprTree before
---                        in buildExprTree $ (SPartial $ Call opName left) : after
-
---buildExprTree2 :: (Monad m) => [SElement] -> m [ExprTree]
+-- Builds a tree of integer values 
 buildExprTree :: [SElement] -> Either String [ExprTree]
 buildExprTree [] = fail "Cannot build expression tree"
 buildExprTree x | all isTree x = return $ map toTree x 
     where isTree (SInteger _) = True
           isTree (SPartial _) = True
-          isTree (SFunction opInfo) = arity opInfo == 0
---          isTree _  = False
+          -- This cover the case of variables
+          isTree (SFunction opInfo) = arity opInfo == 0 
           toTree (SInteger n) = Value $ IPrim n
           toTree (SPartial t) = t
           toTree (SFunction opInfo) = Call (name opInfo) []
