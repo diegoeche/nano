@@ -1,4 +1,8 @@
 {-# LANGUAGE ParallelListComp #-}
+module TypeChecker (Type(TInteger,TString,TBoolean),
+                    getEquations,
+                    resolveEquations) where 
+
 import Analyser
 import qualified Data.Map as M hiding (split) 
 import Data.List
@@ -16,8 +20,27 @@ data Type = TInteger
 
 --tVariables = map return ['a'..'z'] ++ map (++ "'") tVariables
 
-tVariables = "a":map (++ "'") tVariables
+tVariables = "a" : map (++ "'") tVariables
 
+-- Gets the equations from an abstraction. (The only way to do 
+-- Abstractions is in function declaration)
+getEqsAbs vars tEnv expr t fresh = 
+    let (used,notUsed) = splitAt (length vars) fresh
+        a = map TVar used
+        tEnv' = tEnv `M.union` (M.fromList $ zip vars a)
+        b:notUsed' = notUsed
+    in do 
+      equations <- getEquations tEnv' expr (TVar b) notUsed'
+      case a of 
+        [a] -> return $ equations ++ [(t, Arrow a (TVar b))]
+        xs  -> return $ equations ++ [(t, Arrow (Tuple xs) (TVar b))]
+
+getEquations :: (Monad m) =>
+                M.Map String Type
+                -> [ExprTree]
+                -> Type
+                -> [String]
+                -> m [(Type, Type)]
 getEquations _ [Value (IPrim _)] t _ = return [(t,TInteger)]
 getEquations tEnv [Call s xs] t fresh = 
     let (v:vs) = fresh
@@ -57,9 +80,9 @@ resolveEquations ((x, y):xs) | x == y = resolveEquations xs
 resolveEquations ((Arrow t1 t2, Arrow t3 t4):xs) = resolveEquations ((t1,t3):(t2,t4):xs)
 
 resolveEquations ((TVar x, t):xs) 
-    | xs /= [] && isType t = resolveEquations $ map (tmap $ replace x t) xs
+    | xs /= [] = resolveEquations $ map (tmap $ replace x t) xs
 resolveEquations ((t, TVar x):xs) 
-    | xs /= [] && isType t = resolveEquations $ map (tmap $ replace x t) xs
+    | xs /= [] = resolveEquations $ map (tmap $ replace x t) xs
 
 resolveEquations ((Tuple tx, Tuple ty):xs) 
     | length tx == length ty = resolveEquations $ zip tx ty ++ xs
@@ -79,17 +102,26 @@ replace x y z  = z
 
 tmap f (a,b) = (f a, f b)
 
---getEquations (M.fromList [("id", Arrow (TVar "A") (TVar "A"))]) [Call "id" []] (TVar "T") tVariables >>= resolveEquations 
---getEquations (M.fromList [("id", Arrow (TVar "A") (TVar "A"))]) [Call "id" [int 4]] (TVar "T") tVariables >>= resolveEquations 
+
+--------------------------------------------------
+-- Tests
+--------------------------------------------------
 
 typeEnv = M.fromList [("id", Arrow (TVar "A") (TVar "A")),
                       ("+", Arrow (Tuple [TInteger,TInteger]) TInteger),
                       ("==", Arrow (Tuple [TInteger,TInteger]) TBoolean),
+                      ("id", Arrow (TVar "A") (TVar "A")),
                       ("ifThenElse", Arrow (Tuple [TBoolean, TVar "IF", TVar "IF"]) $ TVar "IF")]
+
 int = Value . IPrim
---eq = getEquations typeEnv [Call "+" [int 3, int 5]] (TVar "T") tVariables >>= resolveEquations
+
 
 a () = getEquations typeEnv [Call "ifThenElse" 
-                               [Call "==" [int 3, int 3], 
-                                     int 5, 
-                                         int 5]] (TVar "T") tVariables >>= resolveEquations
+                             [(Call "==" [Call "+" [int 3,int 2],
+                                          int 3]), int 5, int 6
+                             ]
+                            ] (TVar "T") tVariables >>= resolveEquations
+
+b () = getEquations typeEnv [Call "==" [int 3, Call "id" [int 3]] ] (TVar "T") tVariables  >>= resolveEquations
+
+

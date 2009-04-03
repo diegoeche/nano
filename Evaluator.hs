@@ -6,11 +6,16 @@ import qualified Data.Map as M
 import Data.List
 import LambdaCalculus
 import Parser
+import TypeChecker
 import qualified Data.Set as S
 import Data.Maybe
 
 -- Builds a lambda expression using the tree of operator calling. 
 -- The previous definitions of operators. And the binded variables. 
+buildLambdaExpr :: [String]
+                   -> M.Map String ([Expr] -> Expr)
+                   -> ExprTree
+                   -> Either [Char] Expr
 buildLambdaExpr binded env expr = buildLambdaExpr' expr
     where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
           buildLambdaExpr' (Call x args) | elem x binded = 
@@ -26,13 +31,20 @@ buildLambdaExpr binded env expr = buildLambdaExpr' expr
                          Just x -> Right x
                          _      -> Left $ "Could not find " ++ show x
 
-
 -- Builds a lambda expression using the list of tokens.
-createExprFromTokens tokens env defs vars = --do
---  Left ""
+createExprFromTokens :: [ExprToken]
+                        -> M.Map String OpInfo
+                        -> M.Map String ([Expr] -> Expr)
+                        -> [String]
+                        -> Either [Char] Expr
+createExprFromTokens tokens env defs vars = 
      buildTreeFromTokens tokens env >>= buildLambdaExpr vars defs
 
 -- Takes the function declaration type and builds a definition.
+createDefinition :: Declaration
+                    -> M.Map String OpInfo
+                    -> M.Map String ([Expr] -> Expr)
+                    -> Either [Char] (Expr, OpInfo)
 createDefinition decl env defs = 
     let opInfo' = opInfo decl
         name' = name opInfo'
@@ -66,6 +78,10 @@ getDefinitions env' defs' (decl:decls) =
                   (M.insert name' (\x -> applyArgs def x) defs') decls
         _ -> getDefinitions env'' (M.insert name' (\x -> applyArgs def x) defs') decls
 
+createProgram :: M.Map String OpInfo
+                 -> M.Map String ([Expr] -> Expr)
+                 -> ([Declaration], [ExprToken])
+                 -> Either [Char] Expr
 createProgram env defs (declarations,main) = do
   (env', defs') <- getDefinitions env defs declarations
   createExprFromTokens main env' defs' []
