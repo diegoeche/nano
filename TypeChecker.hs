@@ -76,9 +76,9 @@ getEquations tEnv tuple t fresh =
                   return $ acc ++ eq
 
 resolveEquations [] = fail "No equations"
-resolveEquations ((x, y):xs) | x == y = resolveEquations xs
+--resolveEquations (t@(x, _):xs) | x == TVar "T" = resolveEquations $ xs ++ [t]
+resolveEquations ((x, y):_:xs) | x == y = resolveEquations xs
 resolveEquations ((Arrow t1 t2, Arrow t3 t4):xs) = resolveEquations ((t1,t3):(t2,t4):xs)
-
 resolveEquations ((TVar x, t):xs) 
     | xs /= [] = resolveEquations $ map (tmap $ replace x t) xs
 resolveEquations ((t, TVar x):xs) 
@@ -109,6 +109,8 @@ tmap f (a,b) = (f a, f b)
 
 typeEnv = M.fromList [("id", Arrow (TVar "A") (TVar "A")),
                       ("+", Arrow (Tuple [TInteger,TInteger]) TInteger),
+                      ("*", Arrow (Tuple [TInteger,TInteger]) TInteger),
+                      ("-", Arrow (Tuple [TInteger,TInteger]) TInteger),
                       ("==", Arrow (Tuple [TInteger,TInteger]) TBoolean),
                       ("id", Arrow (TVar "A") (TVar "A")),
                       ("ifThenElse", Arrow (Tuple [TBoolean, TVar "IF", TVar "IF"]) $ TVar "IF")]
@@ -116,11 +118,24 @@ typeEnv = M.fromList [("id", Arrow (TVar "A") (TVar "A")),
 int = Value . IPrim
 
 
-a () = getEquations typeEnv [Call "ifThenElse" 
+a () = getEqsAbs ["x"] typeEnv [Call "ifThenElse" 
                              [(Call "==" [Call "+" [int 3,int 2],
                                           int 3]), int 5, int 6
                              ]
                             ] (TVar "T") tVariables >>= resolveEquations
+
+fact () = getEqsAbs ["fact","n"] (typeEnv ) 
+          [Call "ifThenElse" 
+                    [(Call "==" [Call "n" [],int 0]), 
+                     int 1, 
+                     Call "*" [Call "n" [], 
+                               (Call "fact" [])
+                               --(Call "fact" [Call "-" [Call "n" [], int 1]])
+                               --int 1
+                              ]
+                    ]
+          ] (TVar "T") tVariables -- >>= resolveEquations
+
 
 b () = getEquations typeEnv [Call "==" [int 3, Call "id" [int 3]] ] (TVar "T") tVariables  >>= resolveEquations
 
