@@ -58,14 +58,16 @@ createDefinition decl env tEnv defs =
       type' <- 
           if isRec opInfo' 
           then do 
-            TFun x y <- typeCheckFunction tEnv tree $ name opInfo':vars 
+            TFun x y <-  typeCheckFunction tEnv tree vars 
+--            (unsafePerformIO $ putStrLn $ show (TFun x y)) -- `seq` (unsafePerformIO $ putStrLn $ show y) 
+--               `seq` 
             if x == y then return x else fail "Types in recursive definition doesn't match."
           else typeCheckFunction tEnv tree vars 
       let expr' = foldr Lam expr vars
           recExpr = if isRec opInfo' 
                     then App yComb expr'
                     else expr'
-      (unsafePerformIO $ putStrLn $ show type') `seq` return (recExpr, opInfo decl, type')
+      return (recExpr, opInfo decl, type')
     where curryInsert (x,y) = M.insert x y
           defaultPrefix name = createOp 1000 name LeftA Prefix False 0
 

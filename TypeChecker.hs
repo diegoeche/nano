@@ -8,6 +8,8 @@ import Control.Applicative
 import Control.Monad
 import AlgorithmW
 import Control.Monad.Identity
+import System.IO.Unsafe
+
 
 -- The value actually doesn't matter since we are only using it for TC purposes.
 translateToW (Value (IPrim x))  = ELit $ LInt x
@@ -22,7 +24,9 @@ typeCheckExpr typeEnv =
 
 typeCheckFunction  typeEnv f args =
     -- Add arguments as abstractions over the function.
-    gwiw typeEnv . (foldl (.) id $ map EAbs args) . translateToW $ f
+--    let a = (foldl (.) id $ map EAbs args) . translateToW $ f
+--    in unsafePerformIO (putStrLn $ show a) `seq`
+       gwiw typeEnv . (foldl (.) id $ map EAbs args) . translateToW $ f
 
 
 -- f = Call "ifThenElse" [(Call "==" [Call "n" [],int 0]), 

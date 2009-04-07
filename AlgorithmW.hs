@@ -14,7 +14,7 @@ module AlgorithmW  (  Exp(..),
                       ti,
                       runTI
                    ) where
-import System.IO.Unsafe
+
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad.Error
@@ -175,7 +175,7 @@ ti env (ELet x e1 e2) =
         let TypeEnv env' = remove env x
             t' = generalize (apply s1 env) t1
             env'' = TypeEnv (Map.insert x t' env')
-        (s2, t2) <- unsafePerformIO (putStrLn $ show env'') `seq` ti (apply s1 env'') e2
+        (s2, t2) <- ti (apply s1 env'') e2
         return (s1 `composeSubst` s2, t2)
 
 typeInference :: Map.Map String Scheme -> Exp -> TI Type
