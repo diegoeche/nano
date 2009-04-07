@@ -1,5 +1,5 @@
 module Evaluator(executeProgram) where
-
+import System.IO.Unsafe
 import Analyser 
 import Control.Monad
 import qualified Data.Map as M 
@@ -9,13 +9,14 @@ import Parser
 import TypeChecker
 import qualified Data.Set as S
 import Data.Maybe
+import AlgorithmW
 
 -- Builds a lambda expression using the tree of operator calling. 
 -- The previous definitions of operators. And the binded variables. 
 buildLambdaExpr :: [String]
                    -> M.Map String ([Expr] -> Expr)
                    -> ExprTree
-                   -> Either [Char] Expr
+                   -> Either [Char] Expr 
 buildLambdaExpr binded env expr = buildLambdaExpr' expr
     where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
           buildLambdaExpr' (Call x args) | elem x binded = 
@@ -41,11 +42,7 @@ createExprFromTokens tokens env defs vars =
      buildTreeFromTokens tokens env >>= buildLambdaExpr vars defs
 
 -- Takes the function declaration type and builds a definition.
-createDefinition :: Declaration
-                    -> M.Map String OpInfo
-                    -> M.Map String ([Expr] -> Expr)
-                    -> Either [Char] (Expr, OpInfo)
-createDefinition decl env defs = 
+createDefinition decl env tEnv defs = 
     let opInfo' = opInfo decl
         name' = name opInfo'
         vars =  if isRec opInfo' 
@@ -56,42 +53,61 @@ createDefinition decl env defs =
                  $ bindedVars decl
         env' = foldr curryInsert env binded
     in do
-      expr <- createExprFromTokens (definition decl) env' defs vars
+      tree <- buildTreeFromTokens (definition decl) env' 
+      expr <- buildLambdaExpr vars defs tree
+      type' <- 
+          if isRec opInfo' 
+          then do 
+            TFun x y <- typeCheckFunction tEnv tree $ name opInfo':vars 
+            if x == y then return x else fail "Types in recursive definition doesn't match."
+          else typeCheckFunction tEnv tree vars 
       let expr' = foldr Lam expr vars
           recExpr = if isRec opInfo' 
                     then App yComb expr'
                     else expr'
-      return (recExpr, opInfo decl)
+      (unsafePerformIO $ putStrLn $ show type') `seq` return (recExpr, opInfo decl, type')
     where curryInsert (x,y) = M.insert x y
           defaultPrefix name = createOp 1000 name LeftA Prefix False 0
 
-getDefinitions env' defs' [] = return (env', defs')
-getDefinitions env' defs' (decl:decls) = 
+getDefinitions env' tEnv defs' [] = return (env', defs', tEnv)
+getDefinitions env' tEnv defs' (decl:decls) = 
     do
-      (def, opInfo) <- createDefinition decl env' defs' 
+      (def, opInfo,t) <- createDefinition decl env' tEnv defs' 
       let name' = name opInfo 
           env'' = (M.insert name' opInfo env') 
+          tEnv' = M.insert name' (Scheme [] t) tEnv
       case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
-        Close x -> getDefinitions (M.insert x (opInfo {fix = Open name'}) env'') 
-                   (M.insert name' (\x -> applyArgs def x) defs') decls
-        Open x -> getDefinitions (M.insert x (opInfo {fix = Close name'}) env'') 
-                  (M.insert name' (\x -> applyArgs def x) defs') decls
-        _ -> getDefinitions env'' (M.insert name' (\x -> applyArgs def x) defs') decls
+        Close x -> 
+            let openName = opInfo {fix = Open name'}
+                env''' = M.insert x openName env''
+                defs'' = M.insert name' (\x -> applyArgs def x) defs'
+            in getDefinitions env''' tEnv' defs'' decls
+        Open x -> 
+            let closedName = opInfo {fix = Close name'}
+                env''' = M.insert x closedName env''
+                defs'' = M.insert name' (\x -> applyArgs def x) defs'
+            in getDefinitions env''' tEnv' defs'' decls
+        _ -> getDefinitions env'' tEnv' (M.insert name' (\x -> applyArgs def x) defs') decls
 
 createProgram :: M.Map String OpInfo
                  -> M.Map String ([Expr] -> Expr)
                  -> ([Declaration], [ExprToken])
                  -> Either [Char] Expr
 createProgram env defs (declarations,main) = do
-  (env', defs') <- getDefinitions env defs declarations
+  (env', defs',_) <- getDefinitions env primitiveTypes defs declarations
   createExprFromTokens main env' defs' []
 
+showTypes s = do
+  (decls,main) <- parseProgramWrap s
+  (_,_,types)  <- getDefinitions environment primitiveTypes definitions decls
+  return $ M.map (\(Scheme _ x) -> x) types
+
+
+
+executeProgram :: String -> Either [Char] Expr
 executeProgram s = liftM whnf 
                    $ parseProgramWrap s
                    >>= createProgram environment definitions
-
-symbolTables s = parseProgramWrap s
-                 >>= (getDefinitions environment definitions . fst)
 
 --------------------------------------------------
 -- Test environment
@@ -108,6 +124,18 @@ false'      = createOpTuple 2 "false" RightA Prefix
 equals'     = createOpTuple 2 "==" RightA Infix
 lParenS     = createOpTuple 5 "("  LeftA  (Open  ")") 
 rParenS     = createOpTuple 5 ")"  RightA (Close "(")
+
+primitiveTypes = 
+    M.fromList [("(",Scheme ["b0"] $ TFun  (TVar "b0") (TVar "b0")),
+                ("true", Scheme [] $ TBool),
+                ("false", Scheme [] $ TBool),
+                ("+", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("*", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("-", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("==",Scheme [] $ TFun  TInt  (TFun TInt TBool)),
+                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") ((TFun (TVar "b1") (TVar "b1")))))
+               ]
+
 
 environment = M.fromList [plusS, timesS, minusS, 
                           ifThenElse, true', false', 
@@ -127,28 +155,4 @@ definitions =
      ("false", const false),
      ("ifThenElse", ifthenelse)]
 
-buildLambdaWrap s = 
-       buildTree s environment 
-       >>= buildLambdaExpr [] definitions
-
-evalExpr = liftM whnf . buildLambdaWrap 
-
---pp s = buildTree s environment >>= pPrinter environment 
-
-{-
-Tests:
-buildLambdaExpr "3 + ( ( ( ( 1 + 2 ) + 4 + 3 * 2 + 4 + ( 7 + 2 ) ) + 3 + 17 * 6 + 27 ) + 3 )"
-164
-evalExpr "( 1 + 3 ) + ( 3 * 2 ) + ( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
-92
-evalExpr "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )"
-92
-pp "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 )" 
-92
-buildLambdaWrap "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 * (1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 ) )" 
-evalExpr "(1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 * (1+3)+(3*2)+( 7 + 5 ) + ( 8 + 9 ) + ( 6 * 7 ) + ( 3 + 3 ) + ( 2 + 3 ) )" 
-[Const (Data 189)]
-executeProgram "let rec fact n = ifThenElse (0 == n) 1 ((n) * (fact (n - 1))) main = fact 6"
-
-liftM whnf $ parseProgramWrap "let suffix x ! = x + 1 let suffix x $ = (2 + x)!! main = (1 + 2 * 4)$$" >>= createProgram environment definitions
--}
+int = Value . IPrim

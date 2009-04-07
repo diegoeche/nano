@@ -6,9 +6,15 @@
 
 module AlgorithmW  (  Exp(..),
                       Type(..),
-                      ti  
+                      Lit(..),
+                      Scheme(..),
+                      TypeEnv(..),
+                      generalize,
+                      gwiw,
+                      ti,
+                      runTI
                    ) where
-
+import System.IO.Unsafe
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad.Error
@@ -16,6 +22,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Identity
 import qualified Text.PrettyPrint as PP
+import Data.List
 
 data Exp     =  EVar String
              |  ELit Lit
@@ -35,7 +42,7 @@ data Type    =  TVar String
              deriving (Eq, Ord)
 
 data Scheme  =  Scheme [String] Type
-
+             deriving Show
 class Types a where
     ftv    ::  a -> Set.Set String
     apply  ::  Subst -> a -> a
@@ -49,7 +56,7 @@ instance Types Type where
                                Nothing  -> TVar n
                                Just t   -> t
     apply s (TFun t1 t2)  = TFun (apply s t1) (apply s t2)
-    apply s t             =  t
+    apply s t             = t
 
 instance Types Scheme where
     ftv (Scheme vars t)      =  (ftv t) `Set.difference` (Set.fromList vars)
@@ -68,16 +75,19 @@ composeSubst         :: Subst -> Subst -> Subst
 composeSubst s1 s2   = (Map.map (apply s1) s2) `Map.union` s1
 
 newtype TypeEnv = TypeEnv (Map.Map String Scheme)
-
+    deriving Show
+    
 remove                    ::  TypeEnv -> String -> TypeEnv
 remove (TypeEnv env) var  =  TypeEnv (Map.delete var env)
 
 instance Types TypeEnv where
     ftv (TypeEnv env)      =  ftv (Map.elems env)
     apply s (TypeEnv env)  =  TypeEnv (Map.map (apply s) env)
+                              
 generalize        ::  TypeEnv -> Type -> Scheme
 generalize env t  =   Scheme vars t
   where vars = Set.toList ((ftv t) `Set.difference` (ftv env))
+
 data TIEnv = TIEnv  {}
 
 data TIState = TIState {  tiSupply :: Int,
@@ -92,6 +102,7 @@ runTI t =
   where initTIEnv = TIEnv{}
         initTIState = TIState{tiSupply = 0,
                               tiSubst = Map.empty}
+
 
 
 gwiw env expr = gwiw' $ typeInference env expr
@@ -113,6 +124,13 @@ mgu :: Type -> Type -> TI Subst
 mgu (TFun l r) (TFun l' r')  =  do  s1 <- mgu l l'
                                     s2 <- mgu (apply s1 r) (apply s1 r')
                                     return (s1 `composeSubst` s2)
+
+-- mgu (TTuple t) (TTuple t')  =  
+--   if length t == length t' then 
+--       return nullSubst
+--   else throwError $ "types do not unify: " ++ show t' ++ 
+--                     " vs. " ++ show t'
+
 mgu (TVar u) t               =  varBind u t
 mgu t (TVar u)               =  varBind u t
 mgu TInt TInt                =  return nullSubst
@@ -136,6 +154,7 @@ ti (TypeEnv env) (EVar n) =
        Nothing     ->  throwError $ "unbound variable: " ++ n
        Just sigma  ->  do  t <- instantiate sigma
                            return (nullSubst, t)
+
 ti env (ELit l) = tiLit env l
 ti env (EAbs n e) =
     do  tv <- newTyVar "a"
@@ -143,18 +162,20 @@ ti env (EAbs n e) =
             env'' = TypeEnv (env' `Map.union` (Map.singleton n (Scheme [] tv)))
         (s1, t1) <- ti env'' e
         return (s1, TFun (apply s1 tv) t1)
+
 ti env (EApp e1 e2) =
     do  tv <- newTyVar "a"
         (s1, t1) <- ti env e1
         (s2, t2) <- ti (apply s1 env) e2
         s3 <- mgu (apply s2 t1) (TFun t2 tv)
         return (s3 `composeSubst` s2 `composeSubst` s1, apply s3 tv)
+
 ti env (ELet x e1 e2) =
     do  (s1, t1) <- ti env e1
         let TypeEnv env' = remove env x
             t' = generalize (apply s1 env) t1
             env'' = TypeEnv (Map.insert x t' env')
-        (s2, t2) <- ti (apply s1 env'') e2
+        (s2, t2) <- unsafePerformIO (putStrLn $ show env'') `seq` ti (apply s1 env'') e2
         return (s1 `composeSubst` s2, t2)
 
 typeInference :: Map.Map String Scheme -> Exp -> TI Type
@@ -188,6 +209,9 @@ prType             ::  Type -> PP.Doc
 prType (TVar n)    =   PP.text n
 prType TInt        =   PP.text "Int"
 prType TBool       =   PP.text "Bool"
+-- prType (TTuple t)  =   
+--     let commaSeparated = PP.hcat $ intersperse (PP.text ",") $ map prType t
+--     in PP.hcat [PP.text "(", commaSeparated, PP.text ")"]
 prType (TFun t s)  =   prParenType t PP.<+> PP.text "->" PP.<+> prType s
 
 prParenType     ::  Type -> PP.Doc
@@ -206,9 +230,13 @@ prExp (ELet x b body)  =   PP.text "let" PP.<+>
                            prExp b PP.<+> PP.text "in" PP.$$
                            PP.nest 2 (prExp body)
 prExp (EApp e1 e2)     =   prExp e1 PP.<+> prParenExp e2
+
 prExp (EAbs n e)       =   PP.char '\\' PP.<+> PP.text n PP.<+>
                            PP.text "->" PP.<+>
                            prExp e
+-- prExp (ETuple t)      =   
+--     let commaSeparated = PP.hcat $ intersperse (PP.text ",") $ map prExp t
+--     in PP.hcat [PP.text "(", commaSeparated, PP.text ")"]
                                                                    
 
 prParenExp    ::  Exp -> PP.Doc
@@ -225,60 +253,3 @@ prLit            ::  Lit -> PP.Doc
 prLit (LInt i)   =   PP.integer i
 prLit (LBool b)  =   if b then PP.text "True" else PP.text "False"
 
-instance Show Scheme where
-    showsPrec _ x = shows (prScheme x)
-
-prScheme                  ::  Scheme -> PP.Doc
-prScheme (Scheme vars t)  =   PP.text "All" PP.<+>
-                              PP.hcat 
-                                (PP.punctuate PP.comma (map PP.text vars))
-                              PP.<> PP.text "." PP.<+> prType t
-
-data Constraint = CEquivalent Type Type
-                | CExplicitInstance Type Scheme
-                | CImplicitInstance Type (Set.Set String) Type
-
-instance Show Constraint where
-    showsPrec _ x = shows (prConstraint x)
-
-prConstraint :: Constraint -> PP.Doc
-prConstraint (CEquivalent t1 t2) = PP.hsep [prType t1, PP.text "=", prType t2]
-prConstraint (CExplicitInstance t s) =
-    PP.hsep [prType t, PP.text "<~", prScheme s]
-prConstraint (CImplicitInstance t1 m t2) =
-    PP.hsep [prType t1, 
-             PP.text "<=" PP.<> 
-               PP.parens (PP.hcat (PP.punctuate PP.comma (map PP.text (Set.toList m)))), 
-             prType t2]
-
-type Assum = [(String, Type)]
-type CSet = [Constraint]
-
-bu :: Set.Set String -> Exp -> TI (Assum, CSet, Type)
-bu m (EVar n) = do b <- newTyVar "b"
-                   return ([(n, b)], [], b)
-bu m (ELit (LInt _)) = do b <- newTyVar "b"
-                          return ([], [CEquivalent b TInt], b)
-bu m (ELit (LBool _)) = do b <- newTyVar "b"
-                           return ([], [CEquivalent b TBool], b)
-bu m (EApp e1 e2) =
-    do (a1, c1, t1) <- bu m e1
-       (a2, c2, t2) <- bu m e2
-       b <- newTyVar "b"
-       return (a1 ++ a2, c1 ++ c2 ++ [CEquivalent t1 (TFun t2 b)],
-               b)
-bu m (EAbs x body) =
-    do b@(TVar vn) <- newTyVar "b"
-       (a, c, t) <- bu (vn `Set.insert` m) body
-       return (a `removeAssum` x, c ++ [CEquivalent t' b | (x', t') <- a,
-                                        x == x'], TFun b t)
-bu m (ELet x e1 e2) =
-    do (a1, c1, t1) <- bu m e1
-       (a2, c2, t2) <- bu (x `Set.delete` m) e2
-       return (a1 ++ removeAssum a2 x,
-               c1 ++ c2 ++ [CImplicitInstance t' m t1 |
-                            (x', t') <- a2, x' == x], t2)
-
-removeAssum [] _ = []
-removeAssum ((n', _) : as) n | n == n' = removeAssum as n
-removeAssum (a:as) n = a : removeAssum as n

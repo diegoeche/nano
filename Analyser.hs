@@ -243,10 +243,6 @@ buildTreeFromTokens tokens env =
                  (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
 
 
---    >>= resolveDistfix
---    >>= buildExprTree 
-
-
 --------------------------------------------------
 -- Test
 --------------------------------------------------
@@ -255,10 +251,11 @@ createOpTuple p n a f  = (n, OpInfo {precedence = p, name = n,
 
 plusS     = createOpTuple 1 "+"  LeftA Infix
 timesS    = createOpTuple 2 "*"  RightA Infix
+equalsS    = createOpTuple 2 "=="  RightA Infix
 incr      = createOpTuple 2 "++" RightA Prefix
 lParenS   = createOpTuple 5 "("  LeftA  (Open  ")") 
 rParenS   = createOpTuple 5 ")"  RightA (Close "(")
 
-environment = M.fromList [plusS,incr,timesS,lParenS,rParenS]
+environment = M.fromList [plusS,incr,timesS,lParenS,rParenS,equalsS]
 
 --buildTree "(1 +++ 2)" environment
