@@ -12,7 +12,8 @@ module AlgorithmW  (  Exp(..),
                       generalize,
                       gwiw,
                       ti,
-                      runTI
+                      runTI,
+                      ftv
                    ) where
 
 import qualified Data.Map as Map
@@ -38,6 +39,8 @@ data Lit     =  LInt Integer
 data Type    =  TVar String
              |  TInt
              |  TBool
+             |  TList Type -- Bad, bad boy.
+             |  TProd Type Type  -- Let's be easy-going 
              |  TFun Type Type
              deriving (Eq, Ord)
 
@@ -52,10 +55,14 @@ instance Types Type where
     ftv TInt          =  Set.empty
     ftv TBool         =  Set.empty
     ftv (TFun t1 t2)  =  ftv t1 `Set.union` ftv t2
+    ftv (TList t1)    =  ftv t1
+    ftv (TProd t1 t2)  =  ftv t1 `Set.union` ftv t2
     apply s (TVar n)      =  case Map.lookup n s of
                                Nothing  -> TVar n
                                Just t   -> t
-    apply s (TFun t1 t2)  = TFun (apply s t1) (apply s t2)
+    apply s (TFun t1 t2)  = TFun  (apply s t1) (apply s t2)
+    apply s (TList t1)    = TList (apply s t1)
+    apply s (TProd t1 t2)  = TProd (apply s t1) (apply s t2)
     apply s t             = t
 
 instance Types Scheme where
@@ -103,8 +110,6 @@ runTI t =
         initTIState = TIState{tiSupply = 0,
                               tiSubst = Map.empty}
 
-
-
 gwiw env expr = gwiw' $ typeInference env expr
     where 
       gwiw' = fst . runIdentity . runTI 
@@ -121,15 +126,15 @@ instantiate (Scheme vars t) = do  nvars <- mapM (\ _ -> newTyVar "a") vars
                                   return $ apply s t
 
 mgu :: Type -> Type -> TI Subst
-mgu (TFun l r) (TFun l' r')  =  do  s1 <- mgu l l'
-                                    s2 <- mgu (apply s1 r) (apply s1 r')
-                                    return (s1 `composeSubst` s2)
+mgu (TFun l r) (TFun l' r')  =  
+    do  s1 <- mgu l l'
+        s2 <- mgu (apply s1 r) (apply s1 r')
+        return (s1 `composeSubst` s2)
 
--- mgu (TTuple t) (TTuple t')  =  
---   if length t == length t' then 
---       return nullSubst
---   else throwError $ "types do not unify: " ++ show t' ++ 
---                     " vs. " ++ show t'
+mgu (TProd l r) (TProd l' r')  =  
+    do  s1 <- mgu l l'
+        s2 <- mgu (apply s1 r) (apply s1 r')
+        return (s1 `composeSubst` s2)
 
 mgu (TVar u) t               =  varBind u t
 mgu t (TVar u)               =  varBind u t
@@ -209,6 +214,10 @@ prType             ::  Type -> PP.Doc
 prType (TVar n)    =   PP.text n
 prType TInt        =   PP.text "Int"
 prType TBool       =   PP.text "Bool"
+prType (TList t)   =   PP.hcat [PP.text "[", prType t, PP.text "]"]
+prType (TProd t s) =   
+    let inside = prParenType t PP.<+> PP.text "*" PP.<+> prType s
+    in PP.hcat [PP.text "(", inside, PP.text ")"]
 -- prType (TTuple t)  =   
 --     let commaSeparated = PP.hcat $ intersperse (PP.text ",") $ map prType t
 --     in PP.hcat [PP.text "(", commaSeparated, PP.text ")"]

@@ -1,5 +1,6 @@
 module LambdaCalculus (whnf, add, minus, equals, 
                        true, false, times, ifthenelse, yComb, c, identity,
+                       buildPair, first, second,
                        Expr(Const, Var, Lam, App),
                        Constant(Data, Prim)) where
 
@@ -22,12 +23,22 @@ data Expr = Const Constant
           | App Expr Expr
           | Lam String Expr
             deriving (Show, Eq)
--- Helpers
-prim x = App . App (Const $ Prim x)  
-add    =  prim "+"
-times  =  prim "*"
-minus  =  prim "-"
-equals =  prim "=="
+
+
+-- Arithmetic
+prim x    = App . App (Const $ Prim x)  
+add       =  prim "+"
+times     =  prim "*"
+minus     =  prim "-"
+equals    =  prim "=="
+true = Lam x (Lam y (Var x))
+false = Lam x (Lam y (Var y))
+neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
+ifthenelse params = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z))))) params
+-- Pairs
+buildPair a b = Lam x (App (App (Var x) a) (b))
+first pair = App (Lam "p" (App (Var "p") true)) pair
+second pair = App (Lam "p" (App (Var "p") false)) pair
 identity = Lam "x" $ Var "x"
 c = Const . Data 
 
@@ -35,10 +46,6 @@ c = Const . Data
 -- Probably these should change when we add polymorphic types.
 -- (The Y combinator)
 [x,y,z] = map (:[]) "xyz"
-true = Lam x (Lam y (Var x))
-false = Lam x (Lam y (Var y))
-neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
-ifthenelse params = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z))))) params
 
 -- Y Combinator to implement recursion.
 -- Y = λ g. (λ x. g (x x)) (λ x. g (x x))

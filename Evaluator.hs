@@ -59,8 +59,6 @@ createDefinition decl env tEnv defs =
           if isRec opInfo' 
           then do 
             TFun x y <-  typeCheckFunction tEnv tree vars 
---            (unsafePerformIO $ putStrLn $ show (TFun x y)) -- `seq` (unsafePerformIO $ putStrLn $ show y) 
---               `seq` 
             if x == y then return x else fail "Types in recursive definition doesn't match."
           else typeCheckFunction tEnv tree vars 
       let expr' = foldr Lam expr vars
@@ -69,7 +67,8 @@ createDefinition decl env tEnv defs =
                     else expr'
       return (recExpr, opInfo decl, type')
     where curryInsert (x,y) = M.insert x y
-          defaultPrefix name = createOp 1000 name LeftA Prefix False 0
+          -- The 1000 means "resolve the introduced vars last (ie. low precedence)"
+          defaultPrefix name = createOp 1000 name LeftA Prefix False 0 
 
 getDefinitions env' tEnv defs' [] = return (env', defs', tEnv)
 getDefinitions env' tEnv defs' (decl:decls) = 
@@ -77,7 +76,7 @@ getDefinitions env' tEnv defs' (decl:decls) =
       (def, opInfo,t) <- createDefinition decl env' tEnv defs' 
       let name' = name opInfo 
           env'' = (M.insert name' opInfo env') 
-          tEnv' = M.insert name' (Scheme [] t) tEnv
+          tEnv' = M.insert name' (Scheme (S.toList $ ftv t) t) tEnv
       case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
         Close x -> 
             let openName = opInfo {fix = Open name'}
@@ -91,25 +90,32 @@ getDefinitions env' tEnv defs' (decl:decls) =
             in getDefinitions env''' tEnv' defs'' decls
         _ -> getDefinitions env'' tEnv' (M.insert name' (\x -> applyArgs def x) defs') decls
 
-createProgram :: M.Map String OpInfo
-                 -> M.Map String ([Expr] -> Expr)
-                 -> ([Declaration], [ExprToken])
-                 -> Either [Char] Expr
 createProgram env defs (declarations,main) = do
-  (env', defs',_) <- getDefinitions env primitiveTypes defs declarations
-  createExprFromTokens main env' defs' []
+  (env', defs', types) <- getDefinitions env primitiveTypes defs declarations
+  tree <- buildTreeFromTokens main env' 
+  expr <- buildLambdaExpr [] defs' tree
+  type' <- typeCheckExpr types tree
+  program <- createExprFromTokens main env' defs' []
+  return (program, type')
 
 showTypes s = do
   (decls,main) <- parseProgramWrap s
   (_,_,types)  <- getDefinitions environment primitiveTypes definitions decls
   return $ M.map (\(Scheme _ x) -> x) types
 
+--executeProgram :: String -> Either [Char] Expr
+executeProgram s = do
+    parseTree <- parseProgramWrap s
+    (program, type') <- createProgram environment definitions parseTree
+    unsafePerformIO (putStrLn $ "Type: " ++ show type') -- Temporal thing
+                        `seq` return $ whnf program
+--    return $ (show type') ++ "\n"  ++ (show $ whnf program) -- Later we should put this in the 
 
+ppExpression = ()
 
-executeProgram :: String -> Either [Char] Expr
-executeProgram s = liftM whnf 
-                   $ parseProgramWrap s
-                   >>= createProgram environment definitions
+-- liftM whnf 
+                   -- $ parseProgramWrap s
+                   -- >>= createProgram environment definitions
 
 --------------------------------------------------
 -- Test environment
@@ -121,6 +127,9 @@ plusS       = createOpTuple 1 "+"  LeftA Infix
 minusS      = createOpTuple 1 "-"  LeftA Infix
 timesS      = createOpTuple 2 "*"  RightA Infix
 ifThenElse  = createOpTuple 2 "ifThenElse" RightA Prefix
+buildPair'  = createOpTuple 2 "buildPair" RightA Prefix
+first'      = createOpTuple 2 "fst" RightA Prefix
+second'     = createOpTuple 2 "snd" RightA Prefix
 true'       = createOpTuple 2 "true" RightA Prefix
 false'      = createOpTuple 2 "false" RightA Prefix
 equals'     = createOpTuple 2 "==" RightA Infix
@@ -129,19 +138,22 @@ rParenS     = createOpTuple 5 ")"  RightA (Close "(")
 
 primitiveTypes = 
     M.fromList [("(",Scheme ["b0"] $ TFun  (TVar "b0") (TVar "b0")),
-                ("true", Scheme [] $ TBool),
-                ("false", Scheme [] $ TBool),
-                ("+", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("*", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("-", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("==",Scheme [] $ TFun  TInt  (TFun TInt TBool)),
-                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") ((TFun (TVar "b1") (TVar "b1")))))
+                ("true", Scheme [] TBool),
+                ("false", Scheme [] TBool),
+                ("+", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
+                ("*", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
+                ("-", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
+                ("==",Scheme []       $ TFun  TInt  (TFun TInt TBool)),
+                ("buildPair",Scheme ["a", "b"] $ TFun  (TVar "a") (TFun (TVar "b") (TProd (TVar "a") (TVar "b")))),
+                ("fst",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "a")),
+                ("snd",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "b")),
+                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") (TFun (TVar "b1") (TVar "b1"))))
                ]
 
 
 environment = M.fromList [plusS, timesS, minusS, 
                           ifThenElse, true', false', 
-                          equals', lParenS, rParenS]
+                          equals', lParenS, rParenS, buildPair', first', second']
 applyArgs = foldl App
 unary  f [x] = f x 
 binary f [x, y] = f x y
@@ -153,8 +165,13 @@ definitions =
      ("-", binary minus),
      ("(", unary $ App identity), 
      ("==", binary equals), 
+     ("buildPair", binary buildPair),
+     ("fst", unary first),
+     ("snd", unary second),
      ("true", const true),
      ("false", const false),
-     ("ifThenElse", ifthenelse)]
+     ("ifThenElse", ifthenelse)
+    
+    ]
 
 int = Value . IPrim

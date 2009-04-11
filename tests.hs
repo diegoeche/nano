@@ -75,8 +75,6 @@ laziness = executeProgram "let rec x = x \
 ambiguousOp = executeProgram "let ++ x = x + 1 \
                             \main = 1 +++++++ 3"  == Right (Const $ Data 7)
 
-
-
 -- Other examples.
 closedOps = (executeProgram . intercalate "\n")  
             ["let incr = 1",
@@ -98,9 +96,16 @@ precedence = (executeProgram . intercalate "\n")
 tests = [("factorial", factorial),
          ("pow", pow),
          ("laziness",laziness),
-         ("ambiguousOp",ambiguousOp)]
+         ("ambiguousOp",ambiguousOp),
+         ("pairTest", pairTest == Right (Const (Data 7)))
+        ]
 
 failed = map fst $ filter (not . snd) tests
 
 typeTest = (executeProgram . intercalate "\n")
            ["main = 5 + (6 == 3)"]
+
+pairTest = (executeProgram . intercalate "\n")
+           ["let pair = buildPair 5 (6 == 3)",
+            "main = ifThenElse (snd pair) (fst pair + 3) (fst pair + 2)"
+           ]
