@@ -34,11 +34,13 @@ data Exp     =  EVar String
 
 data Lit     =  LInt Integer
              |  LBool Bool
+             |  LString String
              deriving (Eq, Ord)
 
 data Type    =  TVar String
              |  TInt
              |  TBool
+             |  TString
              |  TList Type -- Bad, bad boy.
              |  TProd Type Type  -- Let's be easy-going 
              |  TFun Type Type
@@ -54,6 +56,7 @@ instance Types Type where
     ftv (TVar n)      =  Set.singleton n
     ftv TInt          =  Set.empty
     ftv TBool         =  Set.empty
+    ftv TString       =  Set.empty
     ftv (TFun t1 t2)  =  ftv t1 `Set.union` ftv t2
     ftv (TList t1)    =  ftv t1
     ftv (TProd t1 t2)  =  ftv t1 `Set.union` ftv t2
@@ -63,7 +66,7 @@ instance Types Type where
     apply s (TFun t1 t2)  = TFun  (apply s t1) (apply s t2)
     apply s (TList t1)    = TList (apply s t1)
     apply s (TProd t1 t2)  = TProd (apply s t1) (apply s t2)
-    apply s t             = t
+    apply _ t             = t
 
 instance Types Scheme where
     ftv (Scheme vars t)      =  (ftv t) `Set.difference` (Set.fromList vars)
@@ -102,7 +105,7 @@ data TIState = TIState {  tiSupply :: Int,
 
 type TI a = ErrorT String (ReaderT TIEnv (StateT TIState Identity)) a
 
-
+runTI :: TI a -> Identity (Either String a, TIState)
 runTI t = 
     do (res, st) <- runStateT (runReaderT (runErrorT t) initTIEnv) initTIState
        return (res, st)
@@ -110,6 +113,8 @@ runTI t =
         initTIState = TIState{tiSupply = 0,
                               tiSubst = Map.empty}
 
+
+gwiw :: Map.Map String Scheme -> Exp -> Either String Type
 gwiw env expr = gwiw' $ typeInference env expr
     where 
       gwiw' = fst . runIdentity . runTI 
@@ -157,6 +162,7 @@ varBind u t  | t == TVar u           =  return nullSubst
 tiLit :: TypeEnv -> Lit -> TI (Subst, Type)
 tiLit _ (LInt _)   =  return (nullSubst, TInt)
 tiLit _ (LBool _)  =  return (nullSubst, TBool)
+tiLit _ (LString _)  =  return (nullSubst, TString)
 
 ti        ::  TypeEnv -> Exp -> TI (Subst, Type)
 ti (TypeEnv env) (EVar n) = 
@@ -193,24 +199,24 @@ typeInference env e =
     do  (s, t) <- ti (TypeEnv env) e
         return (apply s t)
 
-e0  =  ELet "id" (EAbs "x" (EVar "x"))
-        (EVar "id")
+-- e0  =  ELet "id" (EAbs "x" (EVar "x"))
+--         (EVar "id")
 
-e1  =  ELet "id" (EAbs "x" (EVar "x"))
-        (EApp (EVar "id") (EVar "id"))
+-- e1  =  ELet "id" (EAbs "x" (EVar "x"))
+--         (EApp (EVar "id") (EVar "id"))
 
-e2  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
-        (EApp (EVar "id") (EVar "id"))
+-- e2  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
+--         (EApp (EVar "id") (EVar "id"))
 
-e3  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
-        (EApp (EApp (EVar "id") (EVar "id")) (ELit (LInt 2)))
+-- e3  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
+--         (EApp (EApp (EVar "id") (EVar "id")) (ELit (LInt 2)))
 
-e4  =  ELet "id" (EAbs "x" (EApp (EVar "x") (EVar "x")))
-        (EVar "id")
+-- e4  =  ELet "id" (EAbs "x" (EApp (EVar "x") (EVar "x")))
+--         (EVar "id")
 
-e5  =  EAbs "m" (ELet "y" (EVar "m")
-                 (ELet "x" (EApp (EVar "y") (ELit (LBool True)))
-                       (EVar "x")))
+-- e5  =  EAbs "m" (ELet "y" (EVar "m")
+--                  (ELet "x" (EApp (EVar "y") (ELit (LBool True)))
+--                        (EVar "x")))
 
 instance Show Type where
     showsPrec _ x = shows (prType x)
@@ -219,6 +225,7 @@ prType             ::  Type -> PP.Doc
 prType (TVar n)    =   PP.text n
 prType TInt        =   PP.text "Int"
 prType TBool       =   PP.text "Bool"
+prType TString     =   PP.text "String"
 prType (TList t)   =   PP.hcat [PP.text "[", prType t, PP.text "]"]
 prType (TProd t s) =   
     let inside = prParenType t PP.<+> PP.text "*" PP.<+> prType s
@@ -264,6 +271,7 @@ instance Show Lit where
     showsPrec _ x = shows (prLit x)
 
 prLit            ::  Lit -> PP.Doc
-prLit (LInt i)   =   PP.integer i
-prLit (LBool b)  =   if b then PP.text "True" else PP.text "False"
+prLit (LInt i)    =   PP.integer i
+prLit (LString s) =   PP.text $ show s
+prLit (LBool b)   =   if b then PP.text "True" else PP.text "False"
 

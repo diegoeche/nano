@@ -2,7 +2,7 @@ module Evaluator(executeProgram,
                  createDefinition, 
                  evalExpression,              
                  addDeclToEnv) where
-import System.IO.Unsafe
+--import System.IO.Unsafe
 import qualified Data.Set as S
 import qualified Data.Map as M 
 import Data.List
@@ -15,6 +15,8 @@ import Parser
 import TypeChecker
 import Environment
 
+
+applyArgs :: Expr -> [Expr] -> Expr
 applyArgs = foldl App
 
 -- Builds a lambda expression using the tree of operator calling. 
@@ -24,7 +26,8 @@ buildLambdaExpr :: [String]
                    -> ExprTree
                    -> Either [Char] Expr 
 buildLambdaExpr binded env expr = buildLambdaExpr' expr
-    where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ Data n
+    where buildLambdaExpr' (Value (IPrim n)) = return $ Const $ IData n
+          buildLambdaExpr' (Value (SPrim s)) = return $ Const $ SData s
           buildLambdaExpr' (Call x args) | elem x binded = 
               do
                 lambdaArgs <- mapM buildLambdaExpr' args
@@ -32,11 +35,11 @@ buildLambdaExpr binded env expr = buildLambdaExpr' expr
           buildLambdaExpr' (Call x args) = 
               do
                 lambdaArgs <- mapM buildLambdaExpr' args
-                definition <- lookup x env
-                return $ definition lambdaArgs
-          lookup x env = case M.lookup x env of
-                         Just x -> Right x
-                         _      -> Left $ "Could not find " ++ show x
+                def <- lookupE x env
+                return $ def lambdaArgs
+          lookupE x e = case M.lookup x e of
+                         Just v -> Right v
+                         _      -> Left $ " Could not find " ++ show x
 
 -- Builds a lambda expression using the list of tokens.
 createExprFromTokens :: [ExprToken]
@@ -86,8 +89,17 @@ createDefinition decl env tEnv defs =
       return (recExpr, opInfo decl, type')
     where curryInsert (x,y) = M.insert x y
           -- The 1000 means "resolve the introduced vars last (ie. low precedence)"
-          defaultPrefix name = createOp 1000 name LeftA Prefix False 0 
+          defaultPrefix name' = createOp 1000 name' LeftA Prefix False 0 
 
+getDefinitions :: M.Map String OpInfo
+                  -> M.Map String Scheme
+                  -> M.Map String ([Expr] -> Expr)
+                  -> [Declaration]
+                  -> Either
+                       [Char]
+                       (M.Map String OpInfo,
+                        M.Map String ([Expr] -> Expr),
+                        M.Map String Scheme)
 getDefinitions env tEnv defs [] = return (env, defs, tEnv)
 getDefinitions env tEnv defs (decl:decls) = do
     (env', tEnv', defs', _) <- addDeclToEnv env tEnv defs decl
@@ -95,47 +107,67 @@ getDefinitions env tEnv defs (decl:decls) = do
 
 -- Adds a definition to the environment and returns
 -- The environment as a tuple.
+addDeclToEnv :: M.Map String OpInfo
+                -> M.Map String Scheme
+                -> M.Map String ([Expr] -> Expr)
+                -> Declaration
+                -> Either
+                     [Char]
+                     (M.Map String OpInfo,
+                      M.Map String Scheme,
+                      M.Map String ([Expr] -> Expr),
+                      Type)
 addDeclToEnv ops tEnv defs decl =
     do
-      (def, opInfo,t) <- createDefinition decl ops tEnv defs
-      let name' = name opInfo 
-          ops' = (M.insert name' opInfo ops) 
+      (def, opInfo',t) <- createDefinition decl ops tEnv defs
+      let name' = name opInfo' 
+          ops' = (M.insert name' opInfo' ops) 
           tEnv' = M.insert name' (Scheme (S.toList $ ftv t) t) tEnv
           defs'' = M.insert name' (\x -> applyArgs def x) defs
-      case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
+      case fix opInfo' of -- It's necessary to add a dummy operator in case of closed operator
         Close x -> 
-            let openName = opInfo {fix = Open name'}
+            let openName = opInfo' {fix = Open name'}
                 ops'' = M.insert x openName ops'
             in return (ops'', tEnv', defs'', t)
         Open x -> 
-            let closedName = opInfo {fix = Close name'}
+            let closedName = opInfo' {fix = Close name'}
                 ops'' = M.insert x closedName ops'
             in return (ops'', tEnv', defs'', t)
         _ -> return (ops', tEnv', defs'', t)
 
+evalExpression :: M.Map String OpInfo
+                  -> M.Map String Scheme
+                  -> M.Map String ([Expr] -> Expr)
+                  -> [ExprToken]
+                  -> Either [Char] (Type, Expr)
 evalExpression ops tEnv defs main = do
   tree <- buildTreeFromTokens main ops
   expr <- buildLambdaExpr [] defs tree
   type' <- typeCheckExpr tEnv tree
   return (type', whnf expr)
 
+createProgram :: M.Map String OpInfo
+                 -> M.Map String ([Expr] -> Expr)
+                 -> ([Declaration], [ExprToken])
+                 -> Either [Char] (Expr, Type)
 createProgram env defs (declarations,main) = do
   (env', defs', types') <- getDefinitions env types defs declarations
   tree <- buildTreeFromTokens main env' 
-  expr <- buildLambdaExpr [] defs' tree
   type' <- typeCheckExpr types' tree
   program <- createExprFromTokens main env' defs' []
   return (program, type')
 
+showTypes :: String -> Either [Char] (M.Map String Type)
 showTypes s = do
-  (decls,main) <- parseProgramWrap s
-  (_,_,types)  <- getDefinitions operators types definitions decls
-  return $ M.map (\(Scheme _ x) -> x) types
+  (decls,_) <- parseProgramWrap s
+  (_,_,types')  <- getDefinitions operators types definitions decls
+  return $ M.map (\(Scheme _ x) -> x) types'
 
 --executeProgram :: String -> Either [Char] Expr
+executeProgram :: String -> Either [Char] Expr
 executeProgram s = do
     parseTree <- parseProgramWrap s
-    (program, type') <- createProgram operators definitions parseTree
+    (program, _) <- createProgram operators definitions parseTree
 --    unsafePerformIO (putStrLn $ "Type: " ++ show type') `seq`-- Temporal thing
     return $ whnf program
 

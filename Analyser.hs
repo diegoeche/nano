@@ -25,7 +25,7 @@ import Control.Applicative ((<$>))
 import Control.Monad.Error hiding (fix) 
 import qualified Data.Map as M hiding (split) 
 import qualified Data.Set as Set
-import System.IO.Unsafe
+--import System.IO.Unsafe
 import Data.List  
 import Data.Maybe
 import Data.Either
@@ -38,6 +38,7 @@ import Parser
 
 -- Semantic Elements. Used for resolving fixity. 
 data SElement = SInteger Integer 
+              | SString String
               | SFunction OpInfo -- Let's exclude Strings for the moment.
               | SPartial ExprTree -- Partially builded trees.
                deriving (Show,Eq)
@@ -46,6 +47,8 @@ data SElement = SInteger Integer
 instance Ord SElement where
     compare (SInteger _) _ = LT
     compare _ (SInteger _) = GT
+    compare (SString _) _ = LT
+    compare _ (SString _) = GT
     compare (SPartial _) _ = LT
     compare _ (SPartial _) = GT
     compare (SFunction info1) (SFunction info2) = 
@@ -76,6 +79,7 @@ sAnalyse env tokens =
     map concat
     $ mapM t tokens 
     where t (LiteralToken (NInteger int)) = return $ return $ SInteger int
+          t (LiteralToken (NString s))    = return $ return $ SString s
           t (FunctionToken x) = do
              monad <- resolveOperator x env
              operators <- monad
@@ -118,7 +122,6 @@ resolveOperator operator env =
 -- The structure behind the types and values?
 data Atom = IPrim Integer 
           | SPrim String 
-          | Variable String
             deriving (Show,Eq)
 
 -- The structure for evaluating expressions.
@@ -141,8 +144,8 @@ split (x:xs) = return $ splitAccum [] x [] xs
 resolveDistfix :: [SElement] -> Either String [SElement]
 resolveDistfix xs = 
     resolveDistfix' Nothing [] [] xs
-    where resolveDistfix' Nothing before after [] = return before
-          resolveDistfix' Nothing before after ((SFunction opInfo):xs) 
+    where resolveDistfix' Nothing before _ [] = return before
+          resolveDistfix' Nothing before _ ((SFunction opInfo):xs) 
               | isOpen  $ fix opInfo = resolveDistfix'(Just opInfo) before [] xs
               | isClose $ fix opInfo = fail $ "Found close operator " 
                                        ++ name opInfo ++ "with no open operator"
@@ -155,38 +158,40 @@ resolveDistfix xs =
               case x of 
                 [] -> fail $ "Expression terminated while expecting closing operator of " 
                       ++ name opInfo 
-                (x@(SFunction opInfo2)):xs ->
+                (x'@(SFunction opInfo2)):xs' ->
                     case fix opInfo2 of
                       Open _ -> 
-                          resolveDistfix' (Just opInfo2) (before ++ [SFunction opInfo] ++ after ) [] xs  
+                          resolveDistfix' (Just opInfo2) (before ++ [SFunction opInfo] ++ after ) [] xs'
                       Close open | open == name opInfo -> 
                                      do inside <- buildExprTree after
-                                        resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs
-                      Close x -> fail $ "Closing operator: " ++ x ++ " found while expecting closing operator of " 
+                                        resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs'
+                      Close x'' -> fail $ "Closing operator: " ++ x'' ++ " found while expecting closing operator of " 
                                  ++ name opInfo 
-                      _ -> resolveDistfix' current before (after ++ [x]) xs
-                x:xs -> resolveDistfix' current before (after ++ [x]) xs
+                      _ -> resolveDistfix' current before (after ++ [x']) xs'
+                x':xs' -> resolveDistfix' current before (after ++ [x']) xs'
 
 -- Builds a tree of integer values 
 buildExprTree :: [SElement] -> Either String [ExprTree]
 buildExprTree [] = fail "Cannot build expression tree"
 buildExprTree x | all isTree x = return $ map toTree x 
     where isTree (SInteger _) = True
+          isTree (SString _)  = True
           isTree (SPartial _) = True
           -- This cover the case of variables
-          isTree (SFunction opInfo) = arity opInfo == 0 
+          isTree (SFunction opInfo') = arity opInfo' == 0 
           toTree (SInteger n) = Value $ IPrim n
+          toTree (SString  s) = Value $ SPrim s
           toTree (SPartial t) = t
-          toTree (SFunction opInfo) = Call (name opInfo) []
+          toTree (SFunction opInfo') = Call (name opInfo') []
 buildExprTree xs = do
-    (before, SFunction opInfo, after) <- split xs
-    let opName = (name opInfo) 
-    case ((fix opInfo), before, after) of
+    (before, SFunction opInfo', after) <- split xs
+    let opName = (name opInfo') 
+    case ((fix opInfo'), before, after) of
       (Infix, [], _)  -> fail $ "Expecting left argument of " ++ opName
       (Infix, _, [])  -> fail $ "Expecting right argument of " ++ opName
                    -- fail $ "Expecting argument of " ++ opName
       (Prefix, _, []) -> 
-          if arity opInfo == 0 then 
+          if arity opInfo' == 0 then 
               return [Call opName []] -- Test
           else fail $ "Expecting argument of " ++ opName
       (Suffix, [], _) -> fail $ "Expecting argument of " ++ opName
@@ -201,23 +206,31 @@ buildExprTree xs = do
                             return [Call opName left]
       (Suffix, _, _)-> do left <- buildExprTree before
                           buildExprTree $ (SPartial $ Call opName left) : after
+      (_, _, _)     -> fail $ "Unexpected operator" ++ show xs
 
 
+pPrinter :: M.Map String Parser.OpInfo
+            -> ExprTree
+            -> [String]
 pPrinter _   (Value (IPrim n))  = return . show $ n
 pPrinter _   (Value (SPrim s))  = return . show $ s
 pPrinter env (Call op params) =      
     do 
-      opInfo <- maybeToList . M.lookup op $ env
+      opInfo' <- maybeToList . M.lookup op $ env
       values <- mapM (pPrinter env) params
-      format (fix opInfo) values
+      format (fix opInfo') values
       where format Prefix x = return $ op ++ " " ++ lformat x
             format Suffix x = return $ lformat x ++ " "  ++ op
             format (Open close) x = return $ intercalate " " [op, (lformat x), close]
-            format (Close open) x = format (Open op) x
+            format (Close _) x = format (Open op) x
             format Infix (x1:x2:_) = return $ x1  ++ op ++ x2
+            format Infix (_) = fail "Cannot format Infix with more than two args"
             lformat = intercalate ","
                                              
 --buildTree :: String -> M.Map String OpInfo -> [ExprTree]
+buildTree :: String
+             -> M.Map String Parser.OpInfo
+             -> Either [Char] ExprTree
 buildTree s env = do
      parsed <- parseWrap s
      let noDistfix = map resolveDistfix $ sAnalyse env parsed
@@ -228,9 +241,14 @@ buildTree s env = do
              case partitionEithers $ map buildExprTree x of
                (l,[])     -> Left $ "Could not build tree from the: " ++ s 
                              ++ "expression" ++ intercalate "\n" l
-               (_,[[s]])    -> Right s
+               (_,[[t]])    -> Right t
                (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ s
+               (_,_)      -> Left "This case was not covered by Analyser.buildTree"
 
+
+buildTreeFromTokens :: [Parser.ExprToken]
+                       -> M.Map String Parser.OpInfo
+                       -> Either [Char] ExprTree
 buildTreeFromTokens tokens env = 
      let noDistfix = map resolveDistfix $ sAnalyse env tokens
      in         
@@ -243,21 +261,4 @@ buildTreeFromTokens tokens env =
                              ++ "expression" ++ intercalate "\n" l
                  (_,[[s]])    -> Right s
                  (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
-
-
---------------------------------------------------
--- Test
---------------------------------------------------
-createOpTuple p n a f  = (n, OpInfo {precedence = p, name = n,
-                                     assoc = a, fix = f, isRec = False, arity = 1})
-
-plusS     = createOpTuple 1 "+"  LeftA Infix
-timesS    = createOpTuple 2 "*"  RightA Infix
-equalsS    = createOpTuple 2 "=="  RightA Infix
-incr      = createOpTuple 2 "++" RightA Prefix
-lParenS   = createOpTuple 5 "("  LeftA  (Open  ")") 
-rParenS   = createOpTuple 5 ")"  RightA (Close "(")
-
-environment = M.fromList [plusS,incr,timesS,lParenS,rParenS,equalsS]
-
---buildTree "(1 +++ 2)" environment
+                 (_,_)      -> Left $ "This case was not covered by Analyser.buildTreeFromTokens" ++ show tokens 

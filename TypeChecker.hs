@@ -4,15 +4,17 @@ module TypeChecker (typeCheckExpr, typeCheckFunction) where
 import Analyser
 import qualified Data.Map as M 
 import Data.List
-import Control.Applicative
-import Control.Monad
+--import Control.Applicative
+--import Control.Monad
 import AlgorithmW
-import Control.Monad.Identity
-import System.IO.Unsafe
+--import Control.Monad.Identity
+--import System.IO.Unsafe
 
 
 -- The value actually doesn't matter since we are only using it for TC purposes.
+translateToW :: ExprTree -> Exp
 translateToW (Value (IPrim x))  = ELit $ LInt x
+translateToW (Value (SPrim x))  = ELit $ LString x
 translateToW (Call f [])        = EVar f
 translateToW (Call f args)      = foldl EApp (EVar f) $ map translateToW args
 
@@ -22,11 +24,13 @@ typeCheckExpr :: M.Map String Scheme
 typeCheckExpr typeEnv = 
     gwiw typeEnv . translateToW 
 
+typeCheckFunction :: M.Map String Scheme
+                     -> ExprTree
+                     -> [String]
+                     -> Either String Type
 typeCheckFunction  typeEnv f args =
     -- Add arguments as abstractions over the function.
---    let a = (foldl (.) id $ map EAbs args) . translateToW $ f
---    in unsafePerformIO (putStrLn $ show a) `seq`
-       gwiw typeEnv . (foldl (.) id $ map EAbs args) . translateToW $ f
+    gwiw typeEnv . (foldl (.) id $ map EAbs args) . translateToW $ f
 
 
 -- f = Call "ifThenElse" [(Call "==" [Call "n" [],int 0]), 

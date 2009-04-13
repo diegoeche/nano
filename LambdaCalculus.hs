@@ -2,7 +2,7 @@ module LambdaCalculus (whnf, add, minus, equals,
                        true, false, times, ifthenelse, yComb, c, identity,
                        buildPair, first, second, cons, empty, isNull, hd, rest,
                        Expr(Const, Var, Lam, App),
-                       Constant(Data, Prim)) where
+                       Constant(IData, SData, Prim)) where
 
 import Data.List
 --------------------------------------------------
@@ -13,8 +13,9 @@ import Data.List
 -- Bibliography: 2.5.1, 11 The implementation of functional programming languages.
 --------------------------------------------------
 
--- Todo: Add maybe booleans and strings
-data Constant = Data Integer 
+
+data Constant = IData  Integer 
+              | SData String
               | Prim String 
                 deriving (Show, Eq)
 
@@ -47,7 +48,7 @@ isNull l = App (Lam "p" (App (Var "p") (Lam x (Lam y false)))) (l)
 hd = first
 rest = second 
 
-c = Const . Data 
+c = Const . IData 
 
 -- http://en.wikipedia.org/wiki/Lambda_calculus
 -- Probably these should change when we add polymorphic types.
@@ -64,12 +65,12 @@ getOperation "+" x y = Const $ liftInt (+) x y
 getOperation "*" x y = Const $ liftInt (*) x y
 getOperation "-" x y = Const $ liftInt (-) x y
 getOperation "==" x y = 
-    case liftData (==) x y of
+    case liftIData (==) x y of
       True -> true
       _    -> false
 
-liftData f (Data x1) (Data x2) = f x1 x2
-liftInt x y = Data . liftData x y 
+liftIData f (IData x1) (IData x2) = f x1 x2
+liftInt x y = IData . liftIData x y 
 
 -- Weak head normal form.
 whnf :: Expr -> Expr
@@ -78,7 +79,7 @@ whnf ee = spine ee []
           -- This was added to Lennart's implementation.
           spine f@(Const (Prim x)) (a1:a2:as) = 
                 case (r1,r2) of
-                  (Const x1@(Data _), Const x2@(Data _)) -> 
+                  (Const x1@(IData _), Const x2@(IData _)) -> 
                        let 
                            replaceRoot = getOperation x x1 x2
                        in spine replaceRoot  as
@@ -119,7 +120,7 @@ substVar s = subst s . Var
 -- fact = Lam "fact" 
 --        $ Lam "n" 
 --        $ App (App (App ifthenelse (equals (c 0) (Var "n"))) 
---                 (Const $ Data 1)) 
+--                 (Const $ IData 1)) 
 --        (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1))))
 
 --recFact = App (App yComb fact) . c
@@ -127,8 +128,8 @@ substVar s = subst s . Var
 {-
 -- whnf $ times (c 2) $ add (c 2) (c 5) 
 whnf $ minus (c 2) (c 3) 
--- Const (Data 14)
--- whnf $ App (App (App ifthenelse (App neg true)) (Const $ Data 3)) (Const $ Data 4)
-whnf $ App yComb (Lam "fact" $ Lam "n" $ App (App (App ifthenelse (equals (c 0) (Var "n"))) (Const $ Data 1)) (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1)))))
+-- Const (IData 14)
+-- whnf $ App (App (App ifthenelse (App neg true)) (Const $ IData 3)) (Const $ IData 4)
+whnf $ App yComb (Lam "fact" $ Lam "n" $ App (App (App ifthenelse (equals (c 0) (Var "n"))) (Const $ IData 1)) (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1)))))
 whnf $ recFact 3
 -}

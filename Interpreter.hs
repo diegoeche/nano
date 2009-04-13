@@ -9,7 +9,7 @@ would be 3 ) + 2
 
 We will just offer an operator of the form [_] 
 -}
-module Interpreter (loop,Environment(..)) where
+module Interpreter (loop,Environment(Env)) where
 
 import Control.Monad.State
 import qualified Data.Map as M
@@ -19,7 +19,6 @@ import AlgorithmW
 import Data.Char (isSpace)
 import Control.Monad (when)
 import Evaluator
-import qualified Environment as E
 import System.IO
 -- This is inherited from the small-step construction
 -- methodoloy. We could refactor and use only one map for all the 
@@ -37,11 +36,11 @@ type Interpreter a = StateT Environment IO a
 
 getMultiline :: IO String
 getMultiline = do
-  line <-  getLine 
+  line <- getLine 
   case reverse line of
-    '\\':_ -> do
+    '\\':ls -> do
         next <- getMultiline
-        return $ line ++ '\n':next
+        return $ reverse ls ++ '\n':next
     _ -> return line
 
 -- According to the wiki haskell doesn't have this as a built-in
@@ -63,26 +62,26 @@ loop = do
                   loop
             process (Right x) = 
                 do
-                  Env types defs ops <- get
+                  Env ty defs ops <- get
                   case x of
                     Right expr ->
-                        case evalExpression ops types defs expr of 
+                        case evalExpression ops ty defs expr of 
                           Right (t,v) -> do
                             lift $ putStrLn $ "Type: " ++ show t ++ "\nVal: " ++ show v
                             loop
-                          Left error -> do
+                          Left err -> do
                             lift $ putStrLn "Error with expression:"
-                            lift $ putStrLn error
+                            lift $ putStrLn err
                             loop
                     Left decl -> 
-                        case addDeclToEnv ops types defs decl of 
-                          Right (ops, tEnv, defs, t) -> do
+                        case addDeclToEnv ops ty defs decl of 
+                          Right (ops', ty', defs', t) -> do
                             lift $ putStrLn $"Type: " ++ show t
-                            put $ Env tEnv defs ops
+                            put $ Env ty' defs' ops'
                             loop
-                          Left error -> do
+                          Left err -> do
                             lift $ putStrLn "Error with declaration:"
-                            lift $ putStrLn error
+                            lift $ putStrLn err
 
 
 
