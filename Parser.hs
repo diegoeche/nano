@@ -18,13 +18,14 @@ module Parser (parseWrap,
                definition,
                Fixing(Suffix, Prefix, Infix, Open, Close),
                Literal(NString, NInteger),
-               ExprToken(LiteralToken, FunctionToken)  
+               ExprToken(LiteralToken, FunctionToken),
+               pCommandWrap
               ) where
 
 import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.ParserCombinators.Parsec.Language 
 import Text.Parsec
-import Control.Applicative ((<$>), pure)
+import Control.Applicative ((<$>),(<*>),(<*),pure)
 import Control.Monad
 
 -- Literal Definition. In the moment just strings 
@@ -44,7 +45,14 @@ data OpInfo = OpInfo {
       fix :: Fixing,
       isRec :: Bool,
       arity :: Int
-    } deriving (Show,Eq)
+    } deriving (Eq)
+
+instance Show OpInfo where
+    show x = 
+        case fix x of 
+          Open o -> name x ++ o
+          Close c -> name x ++ c
+          _ -> name x
 
 -- Function Declaration 
 data Declaration = Decl {opInfo :: OpInfo,
@@ -74,6 +82,7 @@ lexer  = P.makeTokenParser
 pString =  P.stringLiteral lexer
 pNatural =  P.natural lexer
 pIdentifier = P.identifier lexer
+reserved = P.reserved lexer
 
 -- Reserved words parsers.
 [pClosedW, pSuffixW, pLetW, pEqualsW, pMainW, pRecW] = 
@@ -85,7 +94,7 @@ pRec = option False (pure True <$> pRecW)
 pInfix = 
         pure RightA <$> reserved "infixr"
     <|> pure LeftA <$> reserved "infixl"
-    where reserved = P.reserved lexer
+
     
 pLiteral = 
         NString <$> pString 
@@ -143,12 +152,22 @@ pClosedDef = do
                bindedVars = reverse args,
                definition = def} 
 
-pDeclarations = many $ foldl1 (<|>) declarations
+pDeclaration = foldl1 (<|>) declarations
                where declarations = 
                          -- The try is necessary since the parsers seem to consume some input.
                          map try [pPrefixDef, pSuffixDef, 
                                   pInfixDef, pInfixDef, 
                                   pClosedDef]
+
+pDeclarations = many pDeclaration
+
+type Command = Either Declaration [ExprToken]
+
+
+-- Interpreter per-line interpretation.
+pCommand = Left <$> pDeclaration <|> Right <$> pExprElems <* eof
+
+pCommandWrap = parse pCommand "" 
 
 -- Program Syntactic representation.
 pProgram = 

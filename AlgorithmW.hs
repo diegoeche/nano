@@ -131,6 +131,11 @@ mgu (TFun l r) (TFun l' r')  =
         s2 <- mgu (apply s1 r) (apply s1 r')
         return (s1 `composeSubst` s2)
 
+mgu (TList l) (TList l')  =  
+    do  s1 <- mgu l l'
+        return s1
+
+
 mgu (TProd l r) (TProd l' r')  =  
     do  s1 <- mgu l l'
         s2 <- mgu (apply s1 r) (apply s1 r')

@@ -1,6 +1,6 @@
 module LambdaCalculus (whnf, add, minus, equals, 
                        true, false, times, ifthenelse, yComb, c, identity,
-                       buildPair, first, second,
+                       buildPair, first, second, cons, empty, isNull, hd, rest,
                        Expr(Const, Var, Lam, App),
                        Constant(Data, Prim)) where
 
@@ -40,6 +40,13 @@ buildPair a b = Lam x (App (App (Var x) a) (b))
 first pair = App (Lam "p" (App (Var "p") true)) pair
 second pair = App (Lam "p" (App (Var "p") false)) pair
 identity = Lam "x" $ Var "x"
+-- List
+cons = buildPair
+empty = Lam x $ true
+isNull l = App (Lam "p" (App (Var "p") (Lam x (Lam y false)))) (l)
+hd = first
+rest = second 
+
 c = Const . Data 
 
 -- http://en.wikipedia.org/wiki/Lambda_calculus

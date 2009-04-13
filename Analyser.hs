@@ -25,6 +25,7 @@ import Control.Applicative ((<$>))
 import Control.Monad.Error hiding (fix) 
 import qualified Data.Map as M hiding (split) 
 import qualified Data.Set as Set
+import System.IO.Unsafe
 import Data.List  
 import Data.Maybe
 import Data.Either
@@ -156,11 +157,12 @@ resolveDistfix xs =
                       ++ name opInfo 
                 (x@(SFunction opInfo2)):xs ->
                     case fix opInfo2 of
-                      Open _ -> resolveDistfix' (Just opInfo2) (before ++ [x] ++ after) [] xs  
+                      Open _ -> 
+                          resolveDistfix' (Just opInfo2) (before ++ [SFunction opInfo] ++ after ) [] xs  
                       Close open | open == name opInfo -> 
                                      do inside <- buildExprTree after
                                         resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs
-                      Close x -> fail $ "Closing operator found while expecting closing operator of" 
+                      Close x -> fail $ "Closing operator: " ++ x ++ " found while expecting closing operator of " 
                                  ++ name opInfo 
                       _ -> resolveDistfix' current before (after ++ [x]) xs
                 x:xs -> resolveDistfix' current before (after ++ [x]) xs

@@ -1,4 +1,4 @@
-module Evaluator(executeProgram) where
+module Evaluator(executeProgram, operators, definitions, types) where
 import System.IO.Unsafe
 import Analyser 
 import Control.Monad
@@ -48,7 +48,14 @@ createDefinition decl env tEnv defs =
         vars =  if isRec opInfo' 
                 then name':bindedVars decl
                 else bindedVars decl
-        binded = ((name', opInfo'):) 
+        operator = 
+            case fix opInfo' of
+              Close x -> [(x,opInfo'{fix = Open name', name = x}),
+                          (name',opInfo')]
+              Open x  -> [(x,opInfo'{fix = Close name', name = x}),
+                          (name',opInfo')]
+              _ -> [(name',opInfo')]
+        binded = (operator ++) 
                  . map (\x -> (x, defaultPrefix x)) 
                  $ bindedVars decl
         env' = foldr curryInsert env binded
@@ -91,22 +98,22 @@ getDefinitions env' tEnv defs' (decl:decls) =
         _ -> getDefinitions env'' tEnv' (M.insert name' (\x -> applyArgs def x) defs') decls
 
 createProgram env defs (declarations,main) = do
-  (env', defs', types) <- getDefinitions env primitiveTypes defs declarations
+  (env', defs', types') <- getDefinitions env types defs declarations
   tree <- buildTreeFromTokens main env' 
   expr <- buildLambdaExpr [] defs' tree
-  type' <- typeCheckExpr types tree
+  type' <- typeCheckExpr types' tree
   program <- createExprFromTokens main env' defs' []
   return (program, type')
 
 showTypes s = do
   (decls,main) <- parseProgramWrap s
-  (_,_,types)  <- getDefinitions environment primitiveTypes definitions decls
+  (_,_,types)  <- getDefinitions operators types definitions decls
   return $ M.map (\(Scheme _ x) -> x) types
 
 --executeProgram :: String -> Either [Char] Expr
 executeProgram s = do
     parseTree <- parseProgramWrap s
-    (program, type') <- createProgram environment definitions parseTree
+    (program, type') <- createProgram operators definitions parseTree
     unsafePerformIO (putStrLn $ "Type: " ++ show type') -- Temporal thing
                         `seq` return $ whnf program
 --    return $ (show type') ++ "\n"  ++ (show $ whnf program) -- Later we should put this in the 
@@ -115,49 +122,74 @@ ppExpression = ()
 
 -- liftM whnf 
                    -- $ parseProgramWrap s
-                   -- >>= createProgram environment definitions
+                   -- >>= createProgram operators definitions
 
 --------------------------------------------------
--- Test environment
+-- Test operators
 --------------------------------------------------
 createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
                                     assoc = a, fix = f, isRec = False, arity = 2})
+
+createConstTuple p n a f = (n, OpInfo {precedence = p, name = n,
+                                       assoc = a, fix = f, isRec = False, arity = 0})
 
 plusS       = createOpTuple 1 "+"  LeftA Infix
 minusS      = createOpTuple 1 "-"  LeftA Infix
 timesS      = createOpTuple 2 "*"  RightA Infix
 ifThenElse  = createOpTuple 2 "ifThenElse" RightA Prefix
+
 buildPair'  = createOpTuple 2 "buildPair" RightA Prefix
 first'      = createOpTuple 2 "fst" RightA Prefix
 second'     = createOpTuple 2 "snd" RightA Prefix
-true'       = createOpTuple 2 "true" RightA Prefix
-false'      = createOpTuple 2 "false" RightA Prefix
+
+hd'         = createOpTuple 2 "hd" RightA Prefix
+rest'       = createOpTuple 2 "rest" RightA Prefix
+isNull'     = createOpTuple 2 "isNull" RightA Prefix
+empty'      = createConstTuple 2 "empty" RightA Prefix
+cons'       = createOpTuple 2 "cons" RightA Prefix
+
+true'       = createConstTuple 2 "true" RightA Prefix
+false'      = createConstTuple 2 "false" RightA Prefix
 equals'     = createOpTuple 2 "==" RightA Infix
 lParenS     = createOpTuple 5 "("  LeftA  (Open  ")") 
 rParenS     = createOpTuple 5 ")"  RightA (Close "(")
 
-primitiveTypes = 
+types :: M.Map [Char] Scheme
+types = 
     M.fromList [("(",Scheme ["b0"] $ TFun  (TVar "b0") (TVar "b0")),
                 ("true", Scheme [] TBool),
                 ("false", Scheme [] TBool),
-                ("+", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
-                ("*", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
-                ("-", Scheme []       $ TFun  TInt  (TFun TInt TInt)),
-                ("==",Scheme []       $ TFun  TInt  (TFun TInt TBool)),
+                ("+", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("*", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("-", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
+                ("==",Scheme [] $ TFun  TInt  (TFun TInt TBool)),
+
                 ("buildPair",Scheme ["a", "b"] $ TFun  (TVar "a") (TFun (TVar "b") (TProd (TVar "a") (TVar "b")))),
                 ("fst",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "a")),
                 ("snd",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "b")),
-                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") (TFun (TVar "b1") (TVar "b1"))))
+                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") (TFun (TVar "b1") (TVar "b1")))),
+
+                ("cons",Scheme ["a"]   $ TFun  (TVar "a") (TFun (TList $ TVar "a") (TList $ TVar "a"))),
+                ("hd"  ,Scheme ["a"]   $ TFun  (TList $ TVar "a") (TVar "a")),
+                ("rest",Scheme ["a"]   $ TFun  (TList $ TVar "a") (TList $ TVar "a")),
+                ("empty",Scheme ["a"]  $ TList $ TVar "a"),
+                ("isNull",Scheme ["a"] $ TFun  (TList $ TVar "a") (TBool))
                ]
 
 
-environment = M.fromList [plusS, timesS, minusS, 
+operators :: M.Map String OpInfo
+operators = M.fromList [plusS, timesS, minusS, 
                           ifThenElse, true', false', 
-                          equals', lParenS, rParenS, buildPair', first', second']
+                          equals', lParenS, rParenS, 
+                          buildPair', first', second',
+                          hd', isNull', rest', cons', empty'
+                         ]
 applyArgs = foldl App
 unary  f [x] = f x 
 binary f [x, y] = f x y
 ternary f [x, y, z] = f x y z
+
+definitions :: M.Map [Char] ([Expr] -> Expr)
 definitions = 
     M.fromList
     [("+", binary add), 
@@ -165,13 +197,19 @@ definitions =
      ("-", binary minus),
      ("(", unary $ App identity), 
      ("==", binary equals), 
+
      ("buildPair", binary buildPair),
      ("fst", unary first),
      ("snd", unary second),
+
+     ("cons", binary cons),
+     ("hd", unary hd),
+     ("rest", unary rest),
+     ("isNull", unary isNull),
+     ("empty", const empty),
+
      ("true", const true),
      ("false", const false),
      ("ifThenElse", ifthenelse)
-    
     ]
 
-int = Value . IPrim

@@ -48,6 +48,14 @@ factorial = executeProgram
         \    (n * (n - 1)!) \
         \main =  5!" == Right (Const $ Data 120)
 
+factorial' = executeProgram
+        "let rec closed [ n ]  = \
+        \  ifThenElse (0 == n) \
+        \    1 \
+        \    (n * [ n - 1 ] ) \
+        \main =  [ 5 ] " 
+
+
 -- Simple example describing infix operator syntax
 pow = executeProgram "let rec infixl x ^ n = \
                       \  ifThenElse (0 == n) \
@@ -97,15 +105,31 @@ tests = [("factorial", factorial),
          ("pow", pow),
          ("laziness",laziness),
          ("ambiguousOp",ambiguousOp),
-         ("pairTest", pairTest == Right (Const (Data 7)))
+         ("pairTest", pairTest   == Right (Const (Data 7))),
+         ("listTest", listTest   == Right (Const (Data 1))),
+         ("listLength", listLength == Right (Const (Data 4))) 
         ]
 
 failed = map fst $ filter (not . snd) tests
 
-typeTest = (executeProgram . intercalate "\n")
+executeList = (executeProgram . intercalate "\n")
+
+typeTest = executeList
            ["main = 5 + (6 == 3)"]
 
-pairTest = (executeProgram . intercalate "\n")
+pairTest = executeList
            ["let pair = buildPair 5 (6 == 3)",
             "main = ifThenElse (snd pair) (fst pair + 3) (fst pair + 2)"
            ]
+
+-- Yep... infinite list + obfuscation via concatenation of operators
+listTest = executeList
+           ["let rec l = cons 1 l",
+            "main = hdrestrestrest l"
+           ]
+
+listLength = executeList
+             ["let rec closed [| l |] = ifThenElse (isNull l) 0 (1+[|rest l|] )",
+              "main = [|cons 5 cons 6 empty|] + [|cons 3 cons 2 empty|]"
+             ]
+
