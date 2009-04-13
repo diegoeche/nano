@@ -1,4 +1,15 @@
-module Interpreter where
+-- Nano programming language.
+-- Bug reports to Diego Echeverri at diegoeche@gmail.com
+{- Notes:
+
+February 5:
+The idea of using an infix and postfix operator for emulating distfix operators like:
+[_] has some troubles. This the "hard" example "2 * ( 3 ) + 2 " the argument of `(` 
+would be 3 ) + 2
+
+We will just offer an operator of the form [_] 
+-}
+module Interpreter (loop,Environment(..)) where
 
 import Control.Monad.State
 import qualified Data.Map as M
@@ -7,7 +18,8 @@ import Parser
 import AlgorithmW
 import Data.Char (isSpace)
 import Control.Monad (when)
-import qualified Evaluator as E
+import Evaluator
+import qualified Environment as E
 
 -- This is inherited from the small-step construction
 -- methodoloy. We could refactor and use only one map for all the 
@@ -40,25 +52,36 @@ trim = f . f
 
 loop :: Interpreter ()
 loop = do
+  lift $ putStr "Nano> "
   command <- lift getMultiline
-  lift $ putStrLn "Nano>"
   when (trim command /= ":quit") $ process $ pCommandWrap command
       where process (Left err) = 
                 do
-                  lift $ putStrLn "Parsing error command:"
+                  lift $ putStrLn "Error parsing command:"
                   lift $ putStrLn $ show err
                   loop
-            process (Right x) = do
+            process (Right x) = 
+                do
                   Env types defs ops <- get
                   case x of
-                    Right value ->
-                        do
-                          lift $ putStrLn "Value Found"
-                          loop
+                    Right expr ->
+                        case evalExpression ops types defs expr of 
+                          Right (t,v) -> do
+                            lift $ putStrLn $ "Type: " ++ show t ++ "\nVal: " ++ show v
+                            loop
+                          Left error -> do
+                            lift $ putStrLn "Error with expression:"
+                            lift $ putStrLn error
+                            loop
                     Left decl -> 
-                        do
-                          lift $ putStrLn "Decl Found"
-                          loop
+                        case addDeclToEnv ops types defs decl of 
+                          Right (ops, tEnv, defs, t) -> do
+                            lift $ putStrLn $"Type: " ++ show t
+                            put $ Env tEnv defs ops
+                            loop
+                          Left error -> do
+                            lift $ putStrLn "Error with declaration:"
+                            lift $ putStrLn error
 
-main = 
-    runStateT loop (Env E.types E.definitions E.operators)
+
+

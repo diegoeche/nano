@@ -1,15 +1,21 @@
-module Evaluator(executeProgram, operators, definitions, types) where
+module Evaluator(executeProgram, 
+                 createDefinition, 
+                 evalExpression,              
+                 addDeclToEnv) where
 import System.IO.Unsafe
-import Analyser 
-import Control.Monad
+import qualified Data.Set as S
 import qualified Data.Map as M 
 import Data.List
+import Data.Maybe
+import AlgorithmW
+import Analyser 
+import Control.Monad
 import LambdaCalculus
 import Parser
 import TypeChecker
-import qualified Data.Set as S
-import Data.Maybe
-import AlgorithmW
+import Environment
+
+applyArgs = foldl App
 
 -- Builds a lambda expression using the tree of operator calling. 
 -- The previous definitions of operators. And the binded variables. 
@@ -42,6 +48,11 @@ createExprFromTokens tokens env defs vars =
      buildTreeFromTokens tokens env >>= buildLambdaExpr vars defs
 
 -- Takes the function declaration type and builds a definition.
+createDefinition :: Declaration
+                    -> M.Map String OpInfo
+                    -> M.Map String Scheme
+                    -> M.Map String ([Expr] -> Expr)
+                    -> Either [Char] (Expr, OpInfo, Type)
 createDefinition decl env tEnv defs = 
     let opInfo' = opInfo decl
         name' = name opInfo'
@@ -77,25 +88,36 @@ createDefinition decl env tEnv defs =
           -- The 1000 means "resolve the introduced vars last (ie. low precedence)"
           defaultPrefix name = createOp 1000 name LeftA Prefix False 0 
 
-getDefinitions env' tEnv defs' [] = return (env', defs', tEnv)
-getDefinitions env' tEnv defs' (decl:decls) = 
+getDefinitions env tEnv defs [] = return (env, defs, tEnv)
+getDefinitions env tEnv defs (decl:decls) = do
+    (env', tEnv', defs', _) <- addDeclToEnv env tEnv defs decl
+    getDefinitions env' tEnv' defs' decls
+
+-- Adds a definition to the environment and returns
+-- The environment as a tuple.
+addDeclToEnv ops tEnv defs decl =
     do
-      (def, opInfo,t) <- createDefinition decl env' tEnv defs' 
+      (def, opInfo,t) <- createDefinition decl ops tEnv defs
       let name' = name opInfo 
-          env'' = (M.insert name' opInfo env') 
+          ops' = (M.insert name' opInfo ops) 
           tEnv' = M.insert name' (Scheme (S.toList $ ftv t) t) tEnv
+          defs'' = M.insert name' (\x -> applyArgs def x) defs
       case fix opInfo of -- It's necessary to add a dummy operator in case of closed operator
         Close x -> 
             let openName = opInfo {fix = Open name'}
-                env''' = M.insert x openName env''
-                defs'' = M.insert name' (\x -> applyArgs def x) defs'
-            in getDefinitions env''' tEnv' defs'' decls
+                ops'' = M.insert x openName ops'
+            in return (ops'', tEnv', defs'', t)
         Open x -> 
             let closedName = opInfo {fix = Close name'}
-                env''' = M.insert x closedName env''
-                defs'' = M.insert name' (\x -> applyArgs def x) defs'
-            in getDefinitions env''' tEnv' defs'' decls
-        _ -> getDefinitions env'' tEnv' (M.insert name' (\x -> applyArgs def x) defs') decls
+                ops'' = M.insert x closedName ops'
+            in return (ops'', tEnv', defs'', t)
+        _ -> return (ops', tEnv', defs'', t)
+
+evalExpression ops tEnv defs main = do
+  tree <- buildTreeFromTokens main ops
+  expr <- buildLambdaExpr [] defs tree
+  type' <- typeCheckExpr tEnv tree
+  return (type', whnf expr)
 
 createProgram env defs (declarations,main) = do
   (env', defs', types') <- getDefinitions env types defs declarations
@@ -114,102 +136,6 @@ showTypes s = do
 executeProgram s = do
     parseTree <- parseProgramWrap s
     (program, type') <- createProgram operators definitions parseTree
-    unsafePerformIO (putStrLn $ "Type: " ++ show type') -- Temporal thing
-                        `seq` return $ whnf program
---    return $ (show type') ++ "\n"  ++ (show $ whnf program) -- Later we should put this in the 
-
-ppExpression = ()
-
--- liftM whnf 
-                   -- $ parseProgramWrap s
-                   -- >>= createProgram operators definitions
-
---------------------------------------------------
--- Test operators
---------------------------------------------------
-createOpTuple p n a f = (n, OpInfo {precedence = p, name = n,
-                                    assoc = a, fix = f, isRec = False, arity = 2})
-
-createConstTuple p n a f = (n, OpInfo {precedence = p, name = n,
-                                       assoc = a, fix = f, isRec = False, arity = 0})
-
-plusS       = createOpTuple 1 "+"  LeftA Infix
-minusS      = createOpTuple 1 "-"  LeftA Infix
-timesS      = createOpTuple 2 "*"  RightA Infix
-ifThenElse  = createOpTuple 2 "ifThenElse" RightA Prefix
-
-buildPair'  = createOpTuple 2 "buildPair" RightA Prefix
-first'      = createOpTuple 2 "fst" RightA Prefix
-second'     = createOpTuple 2 "snd" RightA Prefix
-
-hd'         = createOpTuple 2 "hd" RightA Prefix
-rest'       = createOpTuple 2 "rest" RightA Prefix
-isNull'     = createOpTuple 2 "isNull" RightA Prefix
-empty'      = createConstTuple 2 "empty" RightA Prefix
-cons'       = createOpTuple 2 "cons" RightA Prefix
-
-true'       = createConstTuple 2 "true" RightA Prefix
-false'      = createConstTuple 2 "false" RightA Prefix
-equals'     = createOpTuple 2 "==" RightA Infix
-lParenS     = createOpTuple 5 "("  LeftA  (Open  ")") 
-rParenS     = createOpTuple 5 ")"  RightA (Close "(")
-
-types :: M.Map [Char] Scheme
-types = 
-    M.fromList [("(",Scheme ["b0"] $ TFun  (TVar "b0") (TVar "b0")),
-                ("true", Scheme [] TBool),
-                ("false", Scheme [] TBool),
-                ("+", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("*", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("-", Scheme [] $ TFun  TInt  (TFun TInt TInt)),
-                ("==",Scheme [] $ TFun  TInt  (TFun TInt TBool)),
-
-                ("buildPair",Scheme ["a", "b"] $ TFun  (TVar "a") (TFun (TVar "b") (TProd (TVar "a") (TVar "b")))),
-                ("fst",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "a")),
-                ("snd",Scheme ["a", "b"]       $ TFun  (TProd (TVar "a") (TVar "b")) (TVar "b")),
-                ("ifThenElse", Scheme ["b1"] $ TFun TBool (TFun (TVar "b1") (TFun (TVar "b1") (TVar "b1")))),
-
-                ("cons",Scheme ["a"]   $ TFun  (TVar "a") (TFun (TList $ TVar "a") (TList $ TVar "a"))),
-                ("hd"  ,Scheme ["a"]   $ TFun  (TList $ TVar "a") (TVar "a")),
-                ("rest",Scheme ["a"]   $ TFun  (TList $ TVar "a") (TList $ TVar "a")),
-                ("empty",Scheme ["a"]  $ TList $ TVar "a"),
-                ("isNull",Scheme ["a"] $ TFun  (TList $ TVar "a") (TBool))
-               ]
-
-
-operators :: M.Map String OpInfo
-operators = M.fromList [plusS, timesS, minusS, 
-                          ifThenElse, true', false', 
-                          equals', lParenS, rParenS, 
-                          buildPair', first', second',
-                          hd', isNull', rest', cons', empty'
-                         ]
-applyArgs = foldl App
-unary  f [x] = f x 
-binary f [x, y] = f x y
-ternary f [x, y, z] = f x y z
-
-definitions :: M.Map [Char] ([Expr] -> Expr)
-definitions = 
-    M.fromList
-    [("+", binary add), 
-     ("*", binary times), 
-     ("-", binary minus),
-     ("(", unary $ App identity), 
-     ("==", binary equals), 
-
-     ("buildPair", binary buildPair),
-     ("fst", unary first),
-     ("snd", unary second),
-
-     ("cons", binary cons),
-     ("hd", unary hd),
-     ("rest", unary rest),
-     ("isNull", unary isNull),
-     ("empty", const empty),
-
-     ("true", const true),
-     ("false", const false),
-     ("ifThenElse", ifthenelse)
-    ]
+--    unsafePerformIO (putStrLn $ "Type: " ++ show type') `seq`-- Temporal thing
+    return $ whnf program
 
