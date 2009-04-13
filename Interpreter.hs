@@ -20,7 +20,7 @@ import Data.Char (isSpace)
 import Control.Monad (when)
 import Evaluator
 import qualified Environment as E
-
+import System.IO
 -- This is inherited from the small-step construction
 -- methodoloy. We could refactor and use only one map for all the 
 -- State.
@@ -53,6 +53,7 @@ trim = f . f
 loop :: Interpreter ()
 loop = do
   lift $ putStr "Nano> "
+  lift $ hFlush stdout
   command <- lift getMultiline
   when (trim command /= ":quit") $ process $ pCommandWrap command
       where process (Left err) = 
