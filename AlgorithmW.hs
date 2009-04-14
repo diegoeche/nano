@@ -73,8 +73,8 @@ instance Types Scheme where
     apply s (Scheme vars t)  =  Scheme vars (apply (foldr Map.delete s vars) t)
 
 instance Types a => Types [a] where
-    apply s  =  map (apply s)
-    ftv l    =  foldr Set.union Set.empty (map ftv l)
+    apply    =  map . apply
+    ftv      =  foldr Set.union Set.empty . map ftv 
 
 type Subst = Map.Map String Type
 
@@ -82,7 +82,7 @@ nullSubst  ::  Subst
 nullSubst  =   Map.empty
 
 composeSubst         :: Subst -> Subst -> Subst
-composeSubst s1 s2   = (Map.map (apply s1) s2) `Map.union` s1
+composeSubst s1 s2   = Map.map (apply s1) s2 `Map.union` s1
 
 newtype TypeEnv = TypeEnv (Map.Map String Scheme)
     deriving Show
@@ -136,10 +136,7 @@ mgu (TFun l r) (TFun l' r')  =
         s2 <- mgu (apply s1 r) (apply s1 r')
         return (s1 `composeSubst` s2)
 
-mgu (TList l) (TList l')  =  
-    do  s1 <- mgu l l'
-        return s1
-
+mgu (TList l) (TList l')  = mgu l l'
 
 mgu (TProd l r) (TProd l' r')  =  
     do  s1 <- mgu l l'
@@ -219,7 +216,7 @@ typeInference env e =
 --                        (EVar "x")))
 
 instance Show Type where
-    showsPrec _ x = shows (prType x)
+    showsPrec _ = shows . prType
 
 prType             ::  Type -> PP.Doc
 prType (TVar n)    =   PP.text n
@@ -241,7 +238,7 @@ prParenType  t  =   case t of
                       _         -> prType t
 
 instance Show Exp where
-    showsPrec _ x = shows (prExp x)
+    showsPrec _ = shows . prExp
 
 prExp                  ::  Exp -> PP.Doc
 prExp (EVar name)      =   PP.text name
@@ -268,7 +265,7 @@ prParenExp t  =   case t of
                     _           -> prExp t
 
 instance Show Lit where
-    showsPrec _ x = shows (prLit x)
+    showsPrec _ = shows . prLit
 
 prLit            ::  Lit -> PP.Doc
 prLit (LInt i)    =   PP.integer i

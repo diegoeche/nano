@@ -58,7 +58,7 @@ loop = do
       where process (Left err) = 
                 do
                   lift $ putStrLn "Error parsing command:"
-                  lift $ putStrLn $ show err
+                  lift $ print err
                   loop
             process (Right x) = 
                 do
@@ -76,7 +76,7 @@ loop = do
                     Left decl -> 
                         case addDeclToEnv ops ty defs decl of 
                           Right (ops', ty', defs', t) -> do
-                            lift $ putStrLn $"Type: " ++ show t
+                            lift $ putStrLn $ "Type: " ++ show t
                             put $ Env ty' defs' ops'
                             loop
                           Left err -> do

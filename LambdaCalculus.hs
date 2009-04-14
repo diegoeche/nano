@@ -26,62 +26,17 @@ data Expr = Const Constant
             deriving (Show, Eq)
 
 
--- Arithmetic
-prim x    = App . App (Const $ Prim x)  
-add       =  prim "+"
-times     =  prim "*"
-minus     =  prim "-"
-equals    =  prim "=="
-true = Lam x (Lam y (Var x))
-false = Lam x (Lam y (Var y))
-neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
-ifthenelse params = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z))))) params
--- Pairs
-buildPair a b = Lam x (App (App (Var x) a) (b))
-first pair = App (Lam "p" (App (Var "p") true)) pair
-second pair = App (Lam "p" (App (Var "p") false)) pair
-identity = Lam "x" $ Var "x"
--- List
-cons = buildPair
-empty = Lam x $ true
-isNull l = App (Lam "p" (App (Var "p") (Lam x (Lam y false)))) (l)
-hd = first
-rest = second 
-
-c = Const . IData 
-
--- http://en.wikipedia.org/wiki/Lambda_calculus
--- Probably these should change when we add polymorphic types.
--- (The Y combinator)
-[x,y,z] = map (:[]) "xyz"
-
--- Y Combinator to implement recursion.
--- Y = λ g. (λ x. g (x x)) (λ x. g (x x))
-tmp = Lam x $ App (Var "g") (App (Var x)(Var x))
-yComb = Lam "g" $ App tmp tmp
-
---Primitive operation definition
-getOperation "+" x y = Const $ liftInt (+) x y
-getOperation "*" x y = Const $ liftInt (*) x y
-getOperation "-" x y = Const $ liftInt (-) x y
-getOperation "==" x y = 
-    case liftIData (==) x y of
-      True -> true
-      _    -> false
-
-liftIData f (IData x1) (IData x2) = f x1 x2
-liftInt x y = IData . liftIData x y 
 
 -- Weak head normal form.
 whnf :: Expr -> Expr
 whnf ee = spine ee []
     where spine (App f a) as = spine f (a:as)
           -- This was added to Lennart's implementation.
-          spine f@(Const (Prim x)) (a1:a2:as) = 
+          spine f@(Const (Prim p)) (a1:a2:as) = 
                 case (r1,r2) of
                   (Const x1@(IData _), Const x2@(IData _)) -> 
                        let 
-                           replaceRoot = getOperation x x1 x2
+                           replaceRoot = getOperation p x1 x2
                        in spine replaceRoot  as
                   _ -> foldl App f as
               where (r1,r2) = (whnf a1, whnf a2) 
@@ -95,9 +50,9 @@ freeVars (App f a) = freeVars f `union` freeVars a
 freeVars (Lam i e) = freeVars e \\ [i] 
 
 subst :: String -> Expr -> Expr -> Expr
-subst v x b = sub b
+subst v x' b = sub b
   where sub e@(Const _) = e
-        sub e@(Var i) = if i == v then x else e
+        sub e@(Var i) = if i == v then x' else e
         sub (App f a) = App (sub f) (sub a)
         sub (Lam i e) =
             if v == i then
@@ -108,7 +63,7 @@ subst v x b = sub b
                 in  Lam i' (sub e')
             else
                 Lam i (sub e)
-        fvx = freeVars x
+        fvx = freeVars x'
         cloneString e i = loop i
            where loop i' = if i' `elem` vars then loop (i ++ "'") else i'
                  vars = fvx ++ freeVars e
@@ -116,20 +71,81 @@ subst v x b = sub b
 substVar :: String -> String -> Expr -> Expr
 substVar s = subst s . Var 
 
--- Recursion Example:
--- fact = Lam "fact" 
---        $ Lam "n" 
---        $ App (App (App ifthenelse (equals (c 0) (Var "n"))) 
---                 (Const $ IData 1)) 
---        (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1))))
+-- Arithmetic
+[x,y,z] = map (:[]) "xyz"
 
---recFact = App (App yComb fact) . c
+prim :: String -> Expr -> Expr -> Expr
+prim p    = App . App (Const $ Prim p)  
 
-{-
--- whnf $ times (c 2) $ add (c 2) (c 5) 
-whnf $ minus (c 2) (c 3) 
--- Const (IData 14)
--- whnf $ App (App (App ifthenelse (App neg true)) (Const $ IData 3)) (Const $ IData 4)
-whnf $ App yComb (Lam "fact" $ Lam "n" $ App (App (App ifthenelse (equals (c 0) (Var "n"))) (Const $ IData 1)) (times (Var "n") (App (Var "fact") (minus (Var "n") (c 1)))))
-whnf $ recFact 3
--}
+add :: Expr -> Expr -> Expr
+add       =  prim "+"
+
+times :: Expr -> Expr -> Expr
+times     =  prim "*"
+
+minus :: Expr -> Expr -> Expr
+minus     =  prim "-"
+
+equals :: Expr -> Expr -> Expr
+equals    =  prim "=="
+
+true :: Expr
+true = Lam x (Lam y (Var x))
+
+false :: Expr
+false = Lam x (Lam y (Var y))
+
+neg :: Expr
+neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
+
+ifthenelse :: [Expr] -> Expr
+ifthenelse = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z)))))
+-- Pairs
+buildPair :: Expr -> Expr -> Expr
+buildPair a b = Lam x (App (App (Var x) a) b)
+first :: Expr -> Expr
+first = App (Lam "p" (App (Var "p") true))
+second :: Expr -> Expr
+second = App (Lam "p" (App (Var "p") false)) 
+identity :: Expr
+identity = Lam "x" $ Var "x"
+-- List
+cons :: Expr -> Expr -> Expr
+cons = buildPair
+empty :: Expr
+empty = Lam x true
+isNull :: Expr -> Expr
+isNull = App (Lam "p" (App (Var "p") (Lam x (Lam y false))))
+hd :: Expr -> Expr
+hd = first
+rest :: Expr -> Expr
+rest = second 
+
+c :: Integer -> Expr
+c = Const . IData 
+
+-- Y Combinator to implement recursion.
+-- Y = λ g. (λ x. g (x x)) (λ x. g (x x))
+tmp :: Expr
+tmp = Lam x $ App (Var "g") (App (Var x)(Var x))
+yComb :: Expr
+yComb = Lam "g" $ App tmp tmp
+
+--Primitive operation definition
+getOperation :: [Char] -> Constant -> Constant -> Expr
+getOperation "+" i1 i2 = Const $ liftInt (+) i1 i2
+getOperation "*" i1 i2 = Const $ liftInt (*) i1 i2
+getOperation "-" i1 i2 = Const $ liftInt (-) i1 i2
+getOperation "==" i1 i2 | liftIData (==) i1 i2 = true
+                        | otherwise            = false
+getOperation _ _ _     = undefined
+
+liftIData :: (Integer -> Integer -> t) -> Constant -> Constant -> t
+liftIData f (IData x1) (IData x2) = f x1 x2
+liftIData _ _ _                   = undefined
+
+liftInt :: (Integer -> Integer -> Integer)
+           -> Constant
+           -> Constant
+           -> Constant
+liftInt i1 i2 = IData . liftIData i1 i2

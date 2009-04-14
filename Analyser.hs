@@ -69,12 +69,14 @@ tokenToSElement :: (Monad m, Functor m) =>
                    M.Map String OpInfo -> 
                    ExprToken -> 
                    m SElement
+tokenToSElement _ (LiteralToken (NString s))    = return $ SString  s 
 tokenToSElement _ (LiteralToken (NInteger int)) = return $ SInteger int 
 tokenToSElement env (FunctionToken x) = 
     SFunction <$> (maybeToM $ M.lookup x env)
 
 -- Lookup of expression Elements.
 -- If we cannot resolve any of the symbols we fail.
+sAnalyse :: M.Map String OpInfo -> [ExprToken] -> [[SElement]]
 sAnalyse env tokens = 
     map concat
     $ mapM t tokens 
@@ -85,16 +87,16 @@ sAnalyse env tokens =
              operators <- monad
              mapM (tokenToSElement env) operators
 
+isValidToken :: String -> Set.Set String -> Bool
 isValidToken i identifiers =
     case parseTokenWrap i of 
-      Just (FunctionToken name) | Set.member name identifiers -> True
-      Just (LiteralToken _)                                   -> True
-      _                                                       -> False
+      Just (FunctionToken n) | Set.member n identifiers -> True
+      Just (LiteralToken _)                             -> True
+      _                                                 -> False
 
 -- Returns the possible operators given the environment and the string
-
---resolveOperator :: (Monad m) =>
---                   [Char] -> M.Map String a -> m [[ExprToken]]
+resolveOperator :: (Monad m) =>
+                   [Char] -> M.Map String a -> m [[ExprToken]]
 resolveOperator operator env =  
     mapM (mapM parseTokenWrap)
     . take 10 -- Just for reducing the amount of cases to try.
@@ -102,12 +104,12 @@ resolveOperator operator env =
     -- We get: [["+++"],["++","+"],["+","+","+"]]
     -- This filter takes care of those cases.
     . filter (isValid . head) 
-    $ split operator
+    $ split' operator
     where isValid = flip isValidToken keys
           keys = Set.fromList . M.keys $ env 
-          split [] = [] -- Thanks Joel!
-          split (y:[]) = [[[y]]]
-          split (y:ys) =  concatMap (merge y) (split ys)
+          split' [] = [] -- Thanks Joel!
+          split' (y:[]) = [[[y]]]
+          split' (y:ys) =  concatMap (merge y) (split' ys)
               where merge z [] = [[[z]]]
                     merge z (x:xs) =
                         let s1 = (z : x) : xs
@@ -135,9 +137,9 @@ split ([]) = fail "Cannot split empty list"
 split (x:xs) = return $ splitAccum [] x [] xs
     where 
       splitAccum before value after [] = (before,value,after)
-      splitAccum b v a (x:xs) = 
-          if x > v then splitAccum (b ++ [v] ++ a) x [] xs 
-          else splitAccum b v (a ++ [x]) xs
+      splitAccum b v a (x':xs') = 
+          if x' > v then splitAccum (b ++ [v] ++ a) x' [] xs'
+          else splitAccum b v (a ++ [x']) xs'
 
 -- Generates SPartial constructors from the distfix operators in the
 -- expression
@@ -145,28 +147,28 @@ resolveDistfix :: [SElement] -> Either String [SElement]
 resolveDistfix xs = 
     resolveDistfix' Nothing [] [] xs
     where resolveDistfix' Nothing before _ [] = return before
-          resolveDistfix' Nothing before _ ((SFunction opInfo):xs) 
-              | isOpen  $ fix opInfo = resolveDistfix'(Just opInfo) before [] xs
-              | isClose $ fix opInfo = fail $ "Found close operator " 
-                                       ++ name opInfo ++ "with no open operator"
+          resolveDistfix' Nothing before _ ((SFunction opInfo'):xs') 
+              | isOpen  $ fix opInfo' = resolveDistfix'(Just opInfo') before [] xs'
+              | isClose $ fix opInfo' = fail $ "Found close operator " 
+                                       ++ name opInfo' ++ "with no open operator"
                 where isClose (Close _) = True
                       isClose _  = False
                       isOpen (Open _) = True
                       isOpen _  = False
-          resolveDistfix' Nothing before _ (x:xs) = resolveDistfix' Nothing (before ++ [x]) [] xs
-          resolveDistfix' current@(Just opInfo) before after x = 
+          resolveDistfix' Nothing before _ (x:xs') = resolveDistfix' Nothing (before ++ [x]) [] xs'
+          resolveDistfix' current@(Just opInfo') before after x = 
               case x of 
                 [] -> fail $ "Expression terminated while expecting closing operator of " 
-                      ++ name opInfo 
+                      ++ name opInfo'
                 (x'@(SFunction opInfo2)):xs' ->
                     case fix opInfo2 of
                       Open _ -> 
-                          resolveDistfix' (Just opInfo2) (before ++ [SFunction opInfo] ++ after ) [] xs'
-                      Close open | open == name opInfo -> 
+                          resolveDistfix' (Just opInfo2) (before ++ [SFunction opInfo'] ++ after ) [] xs'
+                      Close open | open == name opInfo' -> 
                                      do inside <- buildExprTree after
                                         resolveDistfix $ before ++ [SPartial $ Call open inside] ++ xs'
                       Close x'' -> fail $ "Closing operator: " ++ x'' ++ " found while expecting closing operator of " 
-                                 ++ name opInfo 
+                                 ++ name opInfo'
                       _ -> resolveDistfix' current before (after ++ [x']) xs'
                 x':xs' -> resolveDistfix' current before (after ++ [x']) xs'
 

@@ -25,8 +25,9 @@ module Parser (parseWrap,
 import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.ParserCombinators.Parsec.Language 
 import Text.Parsec
-import Control.Applicative ((<$>),(<*>),(<*),pure)
-import Control.Monad
+import Control.Applicative ((<$>),(<*),pure)
+import Control.Monad (liftM)
+import qualified Control.Monad.Identity as I
 
 -- Literal Definition. In the moment just strings 
 -- and integers 
@@ -47,6 +48,8 @@ data OpInfo = OpInfo {
       arity :: Int
     } deriving (Eq)
 
+type ParsecMonad a = ParsecT String () I.Identity a
+
 instance Show OpInfo where
     show x = 
         case fix x of 
@@ -59,7 +62,15 @@ data Declaration = Decl {opInfo :: OpInfo,
                          bindedVars :: [String],
                          definition :: [ExprToken]
                         } deriving (Show,Eq)
+
 -- Creates an OpInfo
+createOp :: Int
+            -> String
+            -> Assoc
+            -> Fixing
+            -> Bool
+            -> Int
+            -> OpInfo
 createOp p n a f r ar = OpInfo {precedence = p, name = n,
                                assoc = a, fix = f, isRec = r,
                                arity = ar
@@ -79,79 +90,104 @@ lexer  = P.makeTokenParser
                digits = ['0'..'9']
 
 -- Aliases for common lexer parsers
+pString :: ParsecMonad String
 pString =  P.stringLiteral lexer
+
+pNatural :: ParsecMonad Integer
 pNatural =  P.natural lexer
+
+pIdentifier :: ParsecMonad String
 pIdentifier = P.identifier lexer
+
+reserved :: String -> ParsecMonad ()
 reserved = P.reserved lexer
 
 -- Reserved words parsers.
+pClosedW :: ParsecMonad ()
+pSuffixW :: ParsecMonad ()
+pLetW :: ParsecMonad ()
+pEqualsW :: ParsecMonad ()
+pMainW :: ParsecMonad ()
+pRecW :: ParsecMonad ()
 [pClosedW, pSuffixW, pLetW, pEqualsW, pMainW, pRecW] = 
     map (P.reserved lexer) 
             ["closed", "suffix", "let", "=", "main", "rec"]
 
+pRec :: ParsecMonad Bool
 pRec = option False (pure True <$> pRecW)
 
+pInfix :: ParsecMonad Assoc
 pInfix = 
         pure RightA <$> reserved "infixr"
     <|> pure LeftA <$> reserved "infixl"
 
     
+pLiteral :: ParsecMonad Literal
 pLiteral = 
         NString <$> pString 
     <|> NInteger <$> pNatural
 
+parseToken :: ParsecMonad ExprToken
 parseToken = LiteralToken <$> pLiteral 
              <|> FunctionToken <$> pIdentifier
 
 --------------------------------------------------
 -- Concrete Syntax for declarations
 --------------------------------------------------
+pExprElems :: ParsecMonad [ExprToken]
 pExprElems = many parseToken
+
+pDefinition :: ParsecMonad [ExprToken]
 pDefinition = pEqualsW >> pExprElems
 
     
+pSuffixDef :: ParsecMonad Declaration
 pSuffixDef = do
   pLetW
-  isRec <- pRec
+  isRec' <- pRec
   pSuffixW
-  name:params <- liftM reverse $ many pIdentifier
+  name':params <- liftM reverse $ many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Suffix isRec $ length params,
+  return Decl {opInfo = createOp 3 name' LeftA Suffix isRec' $ length params,
                bindedVars = reverse params,
                definition = def} 
 
+pPrefixDef :: ParsecMonad Declaration
 pPrefixDef = do
   pLetW
-  isRec <- pRec
-  name:params <- many pIdentifier
+  isRec' <- pRec
+  name':params <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name LeftA Prefix isRec $ length params,
+  return Decl {opInfo = createOp 3 name' LeftA Prefix isRec' $ length params,
                bindedVars = params,
                definition = def} 
 
 -- For the moment we only accept infix operators with two args.
 -- Maybe later we should explore if this restriction is necessary.
+pInfixDef :: ParsecMonad Declaration
 pInfixDef = do
   pLetW
-  isRec <- pRec
-  assoc <- pInfix
+  isRec' <- pRec
+  assoc' <- pInfix
   [p1,op,p2] <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 op assoc Infix isRec 2,
+  return Decl {opInfo = createOp 3 op assoc' Infix isRec' 2,
                bindedVars = [p1,p2],
                definition = def} 
 
+pClosedDef :: ParsecMonad Declaration
 pClosedDef = do
   pLetW
-  isRec <- pRec
+  isRec' <- pRec
   pClosedW
   open:rest <- many pIdentifier
   let close: args = reverse rest
   def <- pDefinition
-  return Decl {opInfo = createOp 3 open LeftA (Open close) isRec $ length args, 
+  return Decl {opInfo = createOp 3 open LeftA (Open close) isRec' $ length args, 
                bindedVars = reverse args,
                definition = def} 
 
+pDeclaration :: ParsecMonad Declaration
 pDeclaration = foldl1 (<|>) declarations
                where declarations = 
                          -- The try is necessary since the parsers seem to consume some input.
@@ -159,17 +195,21 @@ pDeclaration = foldl1 (<|>) declarations
                                   pInfixDef, pInfixDef, 
                                   pClosedDef]
 
+pDeclarations :: ParsecMonad [Declaration]
 pDeclarations = many pDeclaration
 
 type Command = Either Declaration [ExprToken]
 
-
 -- Interpreter per-line interpretation.
+pCommand :: ParsecMonad Command
 pCommand = Left <$> pDeclaration <|> Right <$> pExprElems <* eof
 
+pCommandWrap :: String
+                -> Either ParseError (Either Declaration [ExprToken])
 pCommandWrap = parse pCommand "" 
 
 -- Program Syntactic representation.
+pProgram :: ParsecMonad ([Declaration], [ExprToken])
 pProgram = 
     do
       defs <- pDeclarations
@@ -191,6 +231,7 @@ data Fixing = Suffix | Prefix | Infix
             | Close String  
               deriving (Show,Eq)
 
+wrap :: (Monad m, Show t) => Either t a -> m a
 wrap (Left err) = fail $ "Parse Error!\n" ++ show err
 wrap (Right x) = return x
 
@@ -205,4 +246,6 @@ parseTokenWrap = wrap . parse p ""
 parseWrap :: (Monad m) => String -> m [ExprToken]
 parseWrap = wrap . parse pExprElems ""
 
+parseProgramWrap :: (Monad m) =>
+                    String -> m ([Declaration], [ExprToken])
 parseProgramWrap = wrap . parse pProgram ""

@@ -62,19 +62,19 @@ ambiguousOp = executeProgram "let ++ x = x + 1 \
 
 -- Other examples.
 closedOps :: Either [Char] LambdaCalculus.Expr
-closedOps = (executeProgram . intercalate "\n")  
+closedOps = executeList
             ["let incr = 1",
              "let suffix x ! = incr + x",
              "let closed < x > = x!!!!",
              "main = <1+2*3>!"]
 
 prefixOp :: Either [Char] LambdaCalculus.Expr
-prefixOp = (executeProgram . intercalate "\n")
+prefixOp = executeList
            ["let add x y = x + y",
             "main = add 5 6"]
 
 precedence :: Either [Char] LambdaCalculus.Expr
-precedence = (executeProgram . intercalate "\n") 
+precedence = executeList
              ["main = (1+3)+(3*2)+( 7 + 5 )",
               " + ( 8 + 9 ) + ( 6 * 7 )",
               "+ ( 3 + 3 ) + ( 2 + 3 * ",
@@ -95,7 +95,7 @@ failed :: [[Char]]
 failed = map fst $ filter (not . snd) tests
 
 executeList :: [[Char]] -> Either [Char] LambdaCalculus.Expr
-executeList = (executeProgram . intercalate "\n")
+executeList = executeProgram . intercalate "\n"
 
 typeTest :: Either [Char] LambdaCalculus.Expr
 typeTest = executeList
