@@ -82,6 +82,6 @@ loop = do
                           Left err -> do
                             lift $ putStrLn "Error with declaration:"
                             lift $ putStrLn err
-
+                            loop
 
 

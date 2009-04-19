@@ -41,7 +41,7 @@ data ExprToken = LiteralToken Literal | FunctionToken String
 -- Information about operator
 data OpInfo = OpInfo {
       name :: String,
-      precedence :: Int,
+      precedence :: Integer,
       assoc :: Assoc,
       fix :: Fixing,
       isRec :: Bool,
@@ -64,7 +64,7 @@ data Declaration = Decl {opInfo :: OpInfo,
                         } deriving (Show,Eq)
 
 -- Creates an OpInfo
-createOp :: Int
+createOp :: Integer
             -> String
             -> Assoc
             -> Fixing
@@ -169,9 +169,10 @@ pInfixDef = do
   pLetW
   isRec' <- pRec
   assoc' <- pInfix
+  prec <- option 3 pNatural
   [p1,op,p2] <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 op assoc' Infix isRec' 2,
+  return Decl {opInfo = createOp prec op assoc' Infix isRec' 2,
                bindedVars = [p1,p2],
                definition = def} 
 

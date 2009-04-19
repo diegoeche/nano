@@ -23,42 +23,66 @@ defaultMaybe x Nothing  = x
 prop_SplitConcat :: (Ord a) => [a] -> Property
 prop_SplitConcat x = (x /= []) ==> defaultMaybe False . splitConcat $ x
 
+commonOperators =
+    ["let closed ( x ) = x",
+     "let infixr 1 a + b = add a b",
+     "let infixr 2 a * b = times a b",
+     "let infixr 1 a - b = sub a b",
+     "let infixr 2 a == b = equals a b"]
 --main :: IO ()
 --main = deepCheck (prop_SplitConcat:: [Int] -> Property)
+factorialN = executeProgram
+    "let closed ( x ) = x \
+    \let rec suffix n ! = \
+    \  if (equals 0 n) \
+    \    1 \
+    \    (times n ((sub n 1)!)) \
+    \main =  5!"
 
 factorial :: Bool
 factorial = executeProgram
-        "let rec suffix n ! = \
-        \  ifThenElse (0 == n) \
+        "let closed ( x ) = x \
+        \let rec suffix n ! = \
+        \  if (equals 0 n) \
         \    1 \
-        \    (n * (n - 1)!) \
+        \    (times n ((sub n 1)!)) \
         \main =  5!" == Right (Const $ IData 120)
+
+powProgram = commonOperators ++
+             ["let rec infixl x ^ n = ",
+              "if (0 == n)",
+              "1",
+              "(x * (x ^ (n - 1)))",
+              "main =  5^2"
+             ]
 
 -- Simple example describing infix operator syntax
 pow :: Bool
-pow = executeProgram "let rec infixl x ^ n = \
-                      \  ifThenElse (0 == n) \
-                      \    1 \
-                      \    (x * (x ^ (n - 1))) \
-                      \main =  5^2"  == Right (Const $ IData 25)
+pow = executeList powProgram == Right (Const $ IData 25)
 
 int :: Integer -> Analyser.ExprTree
 int = Value . IPrim
 
 -- Parameters are evaluated as needed in whnf. Passing _|_ 
 -- Doesn't cause non termination.
+lazinessN =
+    commonOperators 
+    ++ ["let rec x = x ",
+        "main = if (1 == 1) 2 x"]
+
 laziness :: Bool
-laziness = executeProgram "let rec x = x \
-                          \main = ifThenElse (1 == 1) \
-                          \   2 \
-                          \   x " == Right (Const $ IData 2)
+laziness = executeList lazinessN == Right (Const $ IData 2)
+
+ambiguousOpN = commonOperators 
+               ++ ["let ++ x = x + 1",
+                   "main = 1 +++++++ 3"]
+                                  
 
 -- Test for resolving ambiguous operators. 
 -- "+++++++" can be interpreted in a number of ways. Given the current environment 
 -- the only one that has some sense is (1 + (++(++(++ 3)))) nano is able of discovering this.
 ambiguousOp :: Bool
-ambiguousOp = executeProgram "let ++ x = x + 1 \
-                            \main = 1 +++++++ 3"  == Right (Const $ IData 7)
+ambiguousOp = executeList ambiguousOpN == Right (Const $ IData 7)
 
 -- Other examples.
 closedOps :: Either [Char] LambdaCalculus.Expr
@@ -102,10 +126,10 @@ typeTest = executeList
            ["main = 5 + (6 == 3)"]
 
 pairTest :: Either [Char] LambdaCalculus.Expr
-pairTest = executeList
-           ["let pair = buildPair 5 (6 == 3)",
-            "main = ifThenElse (snd pair) (fst pair + 3) (fst pair + 2)"
-           ]
+pairTest = executeList $
+           commonOperators ++ ["let pair = buildPair 5 (6 == 3)",
+                               "main = if (snd pair) (fst pair + 3) (fst pair + 2)"
+                              ]
 
 -- Yep... infinite list + obfuscation via concatenation of operators
 listTest :: Either [Char] LambdaCalculus.Expr
@@ -115,8 +139,9 @@ listTest = executeList
            ]
 
 listLength :: Either [Char] LambdaCalculus.Expr
-listLength = executeList
-             ["let rec closed [| l |] = ifThenElse (isNull l) 0 (1+[|rest l|] )",
+listLength = executeList $
+             commonOperators ++
+             ["let rec closed [| l |] = if (isNull l) 0 (1 + [|rest l|] )",
               "main = [|cons 5 cons 6 empty|] + [|cons 3 cons 2 empty|]"
              ]
 
