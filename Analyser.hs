@@ -200,12 +200,25 @@ buildExprTree xs = do
       (Infix, _, _) -> do par1 <- buildExprTree before
                           par2 <- buildExprTree after
                           return [Call opName (par1 ++ par2)]
-      (Prefix, [], _) -> do right <- buildExprTree after
-                            return [Call opName right]
+      (Prefix, [], _) -> do 
+                     right <- buildExprTree after
+                     let (argsN, n) = (arity opInfo', length right) 
+                     if argsN == n
+                       then
+                           return [Call opName right]
+                       else fail $ "Expecting " ++ (show argsN) 
+                                ++ " But found " ++ (show n) ++ "args"
+
       (Prefix, _, _) -> do right <- buildExprTree after
                            buildExprTree $ before ++ [(SPartial $ Call opName right)]
-      (Suffix, _, []) -> do left <- buildExprTree before
-                            return [Call opName left]
+      (Suffix, _, []) -> do 
+                     left <- buildExprTree before
+                     let (argsN, n) = (arity opInfo', length left) 
+                     if argsN == n
+                           then
+                              return [Call opName left]
+                           else fail $ "Expecting " ++ (show argsN) 
+                                    ++ " But found " ++ (show n) ++ "args"
       (Suffix, _, _)-> do left <- buildExprTree before
                           buildExprTree $ (SPartial $ Call opName left) : after
       (_, _, _)     -> fail $ "Unexpected operator" ++ show xs
@@ -244,7 +257,8 @@ buildTree s env = do
                (l,[])     -> Left $ "Could not build tree from the: " ++ s 
                              ++ "expression" ++ intercalate "\n" l
                (_,[[t]])    -> Right t
-               (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ s
+               (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ s 
+                                ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]
                (_,_)      -> Left "This case was not covered by Analyser.buildTree"
 
 
@@ -262,5 +276,7 @@ buildTreeFromTokens tokens env =
                  (l,[])     -> Left $ "Could not build tree from the: " ++ show tokens 
                              ++ "expression" ++ intercalate "\n" l
                  (_,[[s]])    -> Right s
-                 (_,_:_:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
+                 (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
+                                 ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]
+
                  (_,_)      -> Left $ "This case was not covered by Analyser.buildTreeFromTokens" ++ show tokens 
