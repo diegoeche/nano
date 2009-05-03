@@ -207,7 +207,7 @@ buildExprTree xs = do
                        then
                            return [Call opName right]
                        else fail $ "Expecting " ++ (show argsN) 
-                                ++ " But found " ++ (show n) ++ "args"
+                                ++ " But found " ++ (show n) ++ " args"
 
       (Prefix, _, _) -> do right <- buildExprTree after
                            buildExprTree $ before ++ [(SPartial $ Call opName right)]
@@ -251,11 +251,11 @@ buildTree s env = do
      let noDistfix = map resolveDistfix $ sAnalyse env parsed
      case partitionEithers noDistfix of
          (l,[])       -> Left $ "Could not build tree from the: " ++ s 
-                         ++ " expression " ++ intercalate "\n" l
+                         ++ " expression\n" ++ intercalate "\n" l
          (_,x)        ->
              case partitionEithers $ map buildExprTree x of
                (l,[])     -> Left $ "Could not build tree from the: " ++ s 
-                             ++ "expression" ++ intercalate "\n" l
+                             ++ " expression\n" ++ intercalate "\n" l
                (_,[[t]])    -> Right t
                (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ s 
                                 ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]
@@ -270,11 +270,11 @@ buildTreeFromTokens tokens env =
      in         
        case partitionEithers noDistfix of
            (l,[])       -> Left $ "Could not build tree from tokens: " ++ show tokens 
-                           ++ " expression " ++ intercalate "\n" l
+                           ++ " expression\n" ++ intercalate "\n" l
            (_,x)        ->
                case partitionEithers $ map buildExprTree x of
                  (l,[])     -> Left $ "Could not build tree from the: " ++ show tokens 
-                             ++ "expression" ++ intercalate "\n" l
+                             ++ "expression\n" ++ intercalate "\n" l
                  (_,[[s]])    -> Right s
                  (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
                                  ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]

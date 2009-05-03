@@ -2,7 +2,7 @@ module Evaluator(executeProgram,
                  createDefinition, 
                  evalExpression,              
                  addDeclToEnv) where
---import System.IO.Unsafe
+import System.IO.Unsafe
 import qualified Data.Set as S
 import qualified Data.Map as M 
 import Data.List
@@ -79,8 +79,11 @@ createDefinition decl env tEnv defs =
       type' <- 
           if isRec opInfo' 
           then do 
-            TFun x y <-  typeCheckFunction tEnv tree vars 
-            if x == y then return x else fail "Types in recursive definition doesn't match."
+            TFun x y <- typeCheckFunction tEnv tree vars 
+            if x == y 
+                then return x 
+                else fail $ "Types in recursive definition doesn't match.\n" 
+                         ++ (show x) ++ " and " ++ (show y)
           else typeCheckFunction tEnv tree vars 
       let expr' = foldr Lam expr vars
           recExpr = if isRec opInfo' 

@@ -1,5 +1,5 @@
 module LambdaCalculus (whnf, add, minus, equals, 
-                       true, false, times, ifthenelse, yComb, c, identity,
+                       true, false, andLC, orLC, neg, times, ifthenelse, yComb, c, identity,
                        buildPair, first, second, cons, empty, isNull, hd, rest,
                        Expr(Const, Var, Lam, App),
                        Constant(IData, SData, Prim)) where
@@ -95,8 +95,15 @@ true = Lam x (Lam y (Var x))
 false :: Expr
 false = Lam x (Lam y (Var y))
 
-neg :: Expr
-neg = Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
+
+andLC :: [Expr] -> Expr
+andLC = foldl App $ Lam x (Lam y (App (App (Var x) (Var y)) (Var x)))
+
+orLC :: [Expr] -> Expr
+orLC =  foldl App $ Lam x (Lam y (App (App (Var x) (Var x)) (Var y)))
+
+neg :: [Expr] -> Expr
+neg = foldl App $ Lam x (Lam y (Lam z ( App (App (Var x) (Var z)) (Var y))))
 
 ifthenelse :: [Expr] -> Expr
 ifthenelse = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z)))))
