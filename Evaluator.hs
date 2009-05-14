@@ -126,7 +126,8 @@ addDeclToEnv ops tEnv defs decl =
       let name' = name opInfo' 
           ops' = (M.insert name' opInfo' ops) 
           tEnv' = M.insert name' (Scheme (S.toList $ ftv t) t) tEnv
-          defs'' = M.insert name' (\x -> applyArgs def x) defs
+          
+          defs'' =   M.insert name' (\x -> applyArgs def x) defs
       case fix opInfo' of -- It's necessary to add a dummy operator in case of closed operator
         Close x -> 
             let openName = opInfo' {fix = Open name'}
@@ -145,7 +146,7 @@ evalExpression :: M.Map String OpInfo
                   -> Either [Char] (Type, Expr)
 evalExpression ops tEnv defs main = do
   tree <- buildTreeFromTokens main ops
-  expr <- buildLambdaExpr [] defs tree
+  expr <-   buildLambdaExpr [] defs tree
   type' <- typeCheckExpr tEnv tree
   return (type', whnf expr)
 

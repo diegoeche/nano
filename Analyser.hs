@@ -25,7 +25,7 @@ import Control.Applicative ((<$>))
 import Control.Monad.Error hiding (fix) 
 import qualified Data.Map as M hiding (split) 
 import qualified Data.Set as Set
---import System.IO.Unsafe
+import System.IO.Unsafe
 import Data.List  
 import Data.Maybe
 import Data.Either
@@ -275,7 +275,7 @@ buildTreeFromTokens tokens env =
                case partitionEithers $ map buildExprTree x of
                  (l,[])     -> Left $ "Could not build tree from the: " ++ show tokens 
                              ++ "expression\n" ++ intercalate "\n" l
-                 (_,[[s]])    -> Right s
+                 (_,[[s]])    -> (unsafePerformIO $ print s ) `seq` Right s
                  (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
                                  ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]
 

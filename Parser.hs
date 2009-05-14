@@ -156,12 +156,17 @@ pPrefixDef :: ParsecMonad Declaration
 pPrefixDef = do
   pLetW
   isRec' <- pRec
+  prec <- option 3 pNatural
   name':params <- many pIdentifier
   def <- pDefinition
-  return Decl {opInfo = createOp 3 name' LeftA Prefix isRec' $ length params,
+  let a = length params
+      -- Basically with high precedence, vars are going to be 
+      -- evaluated last. HACK
+      p = if a == 0 then 1000 else prec 
+  return Decl {opInfo = createOp p name' LeftA Prefix isRec' a,
                bindedVars = params,
                definition = def} 
-
+  
 -- For the moment we only accept infix operators with two args.
 -- Maybe later we should explore if this restriction is necessary.
 pInfixDef :: ParsecMonad Declaration

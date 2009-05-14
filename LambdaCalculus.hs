@@ -109,7 +109,7 @@ ifthenelse :: [Expr] -> Expr
 ifthenelse = foldl App (Lam x (Lam y (Lam z (App (App (Var x) (Var y)) (Var z)))))
 -- Pairs
 buildPair :: Expr -> Expr -> Expr
-buildPair a b = Lam x (App (App (Var x) a) b)
+buildPair = App . App (Lam "a" $ Lam "b" $ Lam x (App (App (Var x) (Var "a")) (Var "b"))) 
 first :: Expr -> Expr
 first = App (Lam "p" (App (Var "p") true))
 second :: Expr -> Expr
