@@ -275,7 +275,7 @@ buildTreeFromTokens tokens env =
                case partitionEithers $ map buildExprTree x of
                  (l,[])     -> Left $ "Could not build tree from the: " ++ show tokens 
                              ++ "expression\n" ++ intercalate "\n" l
-                 (_,[[s]])    -> (unsafePerformIO $ print s ) `seq` Right s
+                 (_,[[s]])    -> Right s
                  (_,i1:i2:_)  -> Left $ "Ambiguous definition of: " ++ show tokens 
                                  ++ intercalate "\n" ["\nPossible interpretations:", show i1, show i2]
 
