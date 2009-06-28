@@ -147,6 +147,7 @@ mgu (TVar u) t               =  varBind u t
 mgu t (TVar u)               =  varBind u t
 mgu TInt TInt                =  return nullSubst
 mgu TBool TBool              =  return nullSubst
+mgu TString TString              =  return nullSubst
 mgu t1 t2                    =  throwError $ "types do not unify: " ++ show t1 ++ 
                                 " vs. " ++ show t2
 

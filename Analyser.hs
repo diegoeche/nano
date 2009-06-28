@@ -85,7 +85,7 @@ sAnalyse env tokens =
           t (FunctionToken x) = do
              monad <- resolveOperator x env
              operators <- monad
-             mapM (tokenToSElement env) operators
+             mapM (tokenToSElement env) operators 
 
 isValidToken :: String -> Set.Set String -> Bool
 isValidToken i identifiers =
