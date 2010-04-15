@@ -1,8 +1,9 @@
--- There's no way that was ever able to write such a nice type checker.
--- This appeared in:
--- Martin Grabmüller: Algorithm W Step by Step, Draft paper, September 2007. 
--- Available at: http://www.grabmueller.de/martin/www/pub/pub.en.html
--- I just made small changes.
+-- There's no way that I'd ever be able to write such a nice type checker.  This
+-- appeared in: Martin Grabmüller: Algorithm W Step by Step, Draft paper, September
+-- 2007.  Available at: http://www.grabmueller.de/martin/www/pub/pub.en.html I just
+-- made small changes.
+
+{-# LANGUAGE PackageImports #-}
 
 module AlgorithmW  (  Exp(..),
                       Type(..),
@@ -18,10 +19,10 @@ module AlgorithmW  (  Exp(..),
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Control.Monad.Error
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Identity
+import "mtl" Control.Monad.Error
+import "mtl" Control.Monad.Reader
+import "mtl" Control.Monad.State
+import "mtl" Control.Monad.Identity
 import qualified Text.PrettyPrint as PP
 import Data.List
 
@@ -147,7 +148,7 @@ mgu (TVar u) t               =  varBind u t
 mgu t (TVar u)               =  varBind u t
 mgu TInt TInt                =  return nullSubst
 mgu TBool TBool              =  return nullSubst
-mgu TString TString              =  return nullSubst
+mgu TString TString          =  return nullSubst
 mgu t1 t2                    =  throwError $ "types do not unify: " ++ show t1 ++ 
                                 " vs. " ++ show t2
 
@@ -157,10 +158,10 @@ varBind u t  | t == TVar u           =  return nullSubst
                                          " vs. " ++ show t
              | otherwise             =  return (Map.singleton u t)
 
-tiLit :: TypeEnv -> Lit -> TI (Subst, Type)
-tiLit _ (LInt _)   =  return (nullSubst, TInt)
-tiLit _ (LBool _)  =  return (nullSubst, TBool)
-tiLit _ (LString _)  =  return (nullSubst, TString)
+tiLit :: Lit -> TI (Subst, Type)
+tiLit (LInt _)   =  return (nullSubst, TInt)
+tiLit (LBool _)  =  return (nullSubst, TBool)
+tiLit (LString _)  =  return (nullSubst, TString)
 
 ti        ::  TypeEnv -> Exp -> TI (Subst, Type)
 ti (TypeEnv env) (EVar n) = 
@@ -169,7 +170,7 @@ ti (TypeEnv env) (EVar n) =
        Just sigma  ->  do  t <- instantiate sigma
                            return (nullSubst, t)
 
-ti env (ELit l) = tiLit env l
+ti env (ELit l) = tiLit l
 ti env (EAbs n e) =
     do  tv <- newTyVar "a"
         let TypeEnv env' = remove env n
@@ -197,25 +198,6 @@ typeInference env e =
     do  (s, t) <- ti (TypeEnv env) e
         return (apply s t)
 
--- e0  =  ELet "id" (EAbs "x" (EVar "x"))
---         (EVar "id")
-
--- e1  =  ELet "id" (EAbs "x" (EVar "x"))
---         (EApp (EVar "id") (EVar "id"))
-
--- e2  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
---         (EApp (EVar "id") (EVar "id"))
-
--- e3  =  ELet "id" (EAbs "x" (ELet "y" (EVar "x") (EVar "y")))
---         (EApp (EApp (EVar "id") (EVar "id")) (ELit (LInt 2)))
-
--- e4  =  ELet "id" (EAbs "x" (EApp (EVar "x") (EVar "x")))
---         (EVar "id")
-
--- e5  =  EAbs "m" (ELet "y" (EVar "m")
---                  (ELet "x" (EApp (EVar "y") (ELit (LBool True)))
---                        (EVar "x")))
-
 instance Show Type where
     showsPrec _ = shows . prType
 
@@ -228,9 +210,7 @@ prType (TList t)   =   PP.hcat [PP.text "[", prType t, PP.text "]"]
 prType (TProd t s) =   
     let inside = prParenType t PP.<+> PP.text "*" PP.<+> prType s
     in PP.hcat [PP.text "(", inside, PP.text ")"]
--- prType (TTuple t)  =   
---     let commaSeparated = PP.hcat $ intersperse (PP.text ",") $ map prType t
---     in PP.hcat [PP.text "(", commaSeparated, PP.text ")"]
+
 prType (TFun t s)  =   prParenType t PP.<+> PP.text "->" PP.<+> prType s
 
 prParenType     ::  Type -> PP.Doc
@@ -269,7 +249,7 @@ instance Show Lit where
     showsPrec _ = shows . prLit
 
 prLit            ::  Lit -> PP.Doc
-prLit (LInt i)    =   PP.integer i
-prLit (LString s) =   PP.text $ show s
-prLit (LBool b)   =   if b then PP.text "True" else PP.text "False"
+prLit (LInt i)    =  PP.integer i
+prLit (LString s) =  PP.text $ show s
+prLit (LBool b)   =  if b then PP.text "True" else PP.text "False"
 

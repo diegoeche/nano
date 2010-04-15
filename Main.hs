@@ -1,7 +1,8 @@
+{-# LANGUAGE PackageImports #-}
 import Interpreter
-import Control.Monad.State
+import "mtl" Control.Monad.State
 import qualified Environment as E
 
 main :: IO ((), Interpreter.Environment)
-main = 
+main =
     runStateT loop (Env E.types E.definitions E.operators)
