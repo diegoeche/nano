@@ -78,7 +78,7 @@ createDefinition decl env tEnv defs =
                                                    if x == y
                                                       then return x
                                                       else fail $ "Types in recursive definition doesn't match.\n"
-                                                                ++ (show x) ++ " and " ++ (show y)
+                                                                ++ show x ++ " and " ++ show y
                                               else typeCheckFunction tEnv tree vars
                                   return (tree, type', expr)
 
@@ -93,6 +93,10 @@ createDefinition decl env tEnv defs =
                                            else expr'
                                  return (recExpr, opInfo decl, type')
                  (i1: i2:_) -> fail $ unlines ("Multiple possible interpretations like:": map show [i1, i2])
+                 [] -> case slns of
+                       [(_,Left terr,_)] -> Left terr
+                       _ -> Left "Cannot build Expr Tree.\n Multiple possible errors"
+
 
     where curryInsert (x,y) = M.insert x y
           -- The 1000 means "resolve the introduced vars last (ie. low precedence)"
@@ -130,8 +134,7 @@ addDeclToEnv ops tEnv defs decl =
       let name' = name opInfo'
           ops' = (M.insert name' opInfo' ops)
           tEnv' = M.insert name' (Scheme (S.toList $ ftv t) t) tEnv
-
-          defs'' =   M.insert name' (\x -> applyArgs def x) defs
+          defs'' =   M.insert name' (applyArgs def) defs
       case fix opInfo' of -- It's necessary to add a dummy operator in case of closed operator
         Close x ->
             let openName = opInfo' {fix = Open name'}
@@ -145,12 +148,28 @@ addDeclToEnv ops tEnv defs decl =
 
 evalExpression ops tEnv defs main = do
   trees <- buildTreeFromTokens main ops
-  let (mexpr,mtype')  = head $ do
-                        tree <- trees
-                        return  (buildLambdaExpr [] defs tree, typeCheckExpr tEnv tree)
-  type' <- mtype'
-  expr  <- mexpr
-  return (type', whnf expr)
+  let slns  = do
+      tree <- trees
+      return  (buildLambdaExpr [] defs tree, typeCheckExpr tEnv tree)
+  let rights = [(Right x, Right y) | (Right x, Right y) <- slns]
+  case rights of
+   (mexpr,mtype'):[] -> do
+     type' <- mtype'
+     expr  <- mexpr
+     return (type', whnf expr)
+   []  -> fail $ "Error. Can't evaluate such expression" ++ (unlines $ map show slns)
+   x1:x2:_ -> fail $ unlines ("Multiple possible interpretations like:": map show [x1, x2])
+
+  -- let sln@(mexpr,mtype'):others  = do
+  --                              tree <- trees
+  --                              return  (buildLambdaExpr [] defs tree, typeCheckExpr tEnv tree)
+  -- let others' = [(Right x, Right y) | (Right x, Right y) <- others]
+  -- case others' of
+  --  [] -> do
+  --    type' <- mtype'
+  --    expr  <- mexpr
+  --    return (type', whnf expr)
+  --  x:_ -> fail $ unlines ("*Multiple possible interpretations like:": map show [sln, x])
 
 -- createProgram env defs (declarations,main) = do
 --   (env', defs', types') <- getDefinitions env types defs declarations
